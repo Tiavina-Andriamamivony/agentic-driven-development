@@ -1,9 +1,9 @@
 {
-  "name": "@lou/opencode-runtime",
+  "name": "@lou/budget",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AgentRuntime port and OpenCode adapter sitting above the opencode CLI.",
+  "description": "Per-run cost and resource budget guard for agent runs.",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -12,10 +12,6 @@
     "lint": "eslint src test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
-  },
-  "dependencies": {
-    "@lou/budget": "workspace:*",
-    "@lou/command-runner": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

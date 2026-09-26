@@ -1,5 +1,11 @@
 import type { CommandResult } from '@lou/command-runner';
 
+export interface TokenUsage {
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly costUsd?: number;
+}
+
 export interface AgentRunInput {
   readonly runId: string;
   readonly agent?: string;
@@ -11,6 +17,7 @@ export interface AgentRunInput {
 
 export interface AgentRunResult extends CommandResult {
   readonly runId: string;
+  readonly usage?: TokenUsage;
 }
 
 export interface AgentStatus {

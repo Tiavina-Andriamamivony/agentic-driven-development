@@ -1,4 +1,5 @@
 import type { AuditLog, AuditEventPayload, AuditEventType } from '@lou/audit';
+import { BudgetExceededError } from '@lou/budget';
 import type { GitAdapter } from '@lou/git';
 import type { GitHubAdapter, GitHubIssue } from '@lou/github';
 import type { ReviewerAgent } from '@lou/reviewer';
@@ -111,6 +112,9 @@ export class Orchestrator {
         }
       }
     } catch (error) {
+      if (error instanceof BudgetExceededError) {
+        return this.intervention(error.limit.details);
+      }
       if (error instanceof InterventionBudgetError) {
         return this.intervention(error.message);
       }

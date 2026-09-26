@@ -1,5 +1,7 @@
 import { NodeAuditLog } from '@lou/audit';
 import type { AuditLog, AuditEventPayload } from '@lou/audit';
+import { RunBudget } from '@lou/budget';
+import { BudgetedAgentRuntime } from '@lou/opencode-runtime';
 import { NodeGitHubAdapter } from '@lou/github';
 import type { GitHubAdapter, GitHubIssue } from '@lou/github';
 import { NodeGitAdapter } from '@lou/git';
@@ -46,6 +48,8 @@ export interface RunEnvironment {
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
+  readonly maxCostUsd?: number;
+  readonly maxMinutes?: number;
 }
 
 interface ProductionRunOptions {
@@ -53,6 +57,8 @@ interface ProductionRunOptions {
   readonly cwd: string;
   readonly out: (line: string) => void;
   readonly dryRun: boolean;
+  readonly maxCostUsd?: number;
+  readonly maxMinutes?: number;
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
@@ -61,6 +67,8 @@ interface ProductionRunOptions {
 interface RunArguments {
   readonly issueNumber: number;
   readonly dryRun: boolean;
+  readonly maxCostUsd?: number;
+  readonly maxMinutes?: number;
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
@@ -70,6 +78,8 @@ const DRY_RUN_FLAG = '--dry-run';
 const MODEL_FLAG = '--model';
 const MODEL_BY_AGENT_FLAG = '--model-by-agent';
 const MCP_FLAG = '--mcp';
+const MAX_COST_FLAG = '--max-cost-usd';
+const MAX_TIME_FLAG = '--max-time-min';
 
 export function readIssueNumber(value: string | undefined): number | null {
   if (value === undefined) {
@@ -96,6 +106,8 @@ export function parseRunArguments(argv: readonly string[]): RunArguments | null 
     ...(flags.model !== undefined ? { model: flags.model } : {}),
     ...(flags.modelsByAgent !== undefined ? { modelsByAgent: flags.modelsByAgent } : {}),
     ...(Object.keys(flags.mcp).length > 0 ? { mcp: flags.mcp } : {}),
+    ...(flags.maxCostUsd !== undefined ? { maxCostUsd: flags.maxCostUsd } : {}),
+    ...(flags.maxMinutes !== undefined ? { maxMinutes: flags.maxMinutes } : {}),
   };
 }
 
@@ -104,6 +116,8 @@ interface FlagState {
   model: string | undefined;
   modelsByAgent: Readonly<Record<string, string>> | undefined;
   mcp: Record<string, string>;
+  maxCostUsd: number | undefined;
+  maxMinutes: number | undefined;
 }
 
 type FlagApplier = (value: string, flags: FlagState) => boolean;
@@ -112,6 +126,8 @@ const FLAG_APPLIERS: Readonly<Record<string, FlagApplier>> = {
   [MODEL_FLAG]: applyModel,
   [MODEL_BY_AGENT_FLAG]: applyModelsByAgent,
   [MCP_FLAG]: applyMcp,
+  [MAX_COST_FLAG]: applyMaxCost,
+  [MAX_TIME_FLAG]: applyMaxMinutes,
 };
 
 function parseFlags(rest: readonly string[]): FlagState | null {
@@ -120,6 +136,8 @@ function parseFlags(rest: readonly string[]): FlagState | null {
     model: undefined,
     modelsByAgent: undefined,
     mcp: {},
+    maxCostUsd: undefined,
+    maxMinutes: undefined,
   };
   for (let index = 0; index < rest.length; index += 1) {
     const nextIndex = applyFlag(rest, index, flags);
@@ -179,6 +197,32 @@ function applyMcp(value: string, flags: FlagState): boolean {
   return true;
 }
 
+function applyMaxCost(value: string, flags: FlagState): boolean {
+  const cost = parsePositiveNumber(value);
+  if (cost === null) {
+    return false;
+  }
+  flags.maxCostUsd = cost;
+  return true;
+}
+
+function applyMaxMinutes(value: string, flags: FlagState): boolean {
+  const minutes = parsePositiveNumber(value);
+  if (minutes === null) {
+    return false;
+  }
+  flags.maxMinutes = minutes;
+  return true;
+}
+
+function parsePositiveNumber(value: string): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
 function readFlagValue(rest: readonly string[], index: number): string | null {
   const value = rest[index + 1];
   if (value === undefined || value.length === 0) {
@@ -208,6 +252,17 @@ interface AgentSettings {
   readonly mcp?: Readonly<Record<string, string>>;
 }
 
+function boundedRuntime(env: RunEnvironment): AgentRuntime {
+  const limits = {
+    ...(env.maxCostUsd !== undefined ? { maxCostUsd: env.maxCostUsd } : {}),
+    ...(env.maxMinutes !== undefined ? { maxMinutes: env.maxMinutes } : {}),
+  };
+  if (limits.maxCostUsd === undefined && limits.maxMinutes === undefined) {
+    return env.runtime;
+  }
+  return new BudgetedAgentRuntime({ inner: env.runtime, budget: new RunBudget(limits) });
+}
+
 function agentSettings(settings: {
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
@@ -235,6 +290,8 @@ export function runProduction(options: ProductionRunOptions): Promise<number> {
     out: options.out,
     dryRun: options.dryRun,
     ...agentSettings(options),
+    ...(options.maxCostUsd !== undefined ? { maxCostUsd: options.maxCostUsd } : {}),
+    ...(options.maxMinutes !== undefined ? { maxMinutes: options.maxMinutes } : {}),
   });
 }
 
@@ -247,8 +304,9 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     env.out(`Issue #${issue.number} is already closed.`);
     return 1;
   }
+  const runtime = boundedRuntime(env);
   const steps = createOpenCodeSteps({
-    runtime: env.runtime,
+    runtime,
     workspace: env.workspace,
     ...agentSettings(env),
   });
@@ -263,7 +321,7 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     steps,
     keeper: createTerminalKeeper({ ask: env.ask, out: env.out }),
     reviewer: new ReviewerAgent({
-      runtime: env.runtime,
+      runtime,
       ...agentSettings(env),
     }),
     tests: env.tests,
