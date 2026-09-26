@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@lou/audit": "workspace:*",
+    "@lou/budget": "workspace:*",
     "@lou/git": "workspace:*",
     "@lou/github": "workspace:*",
     "@lou/opencode-runtime": "workspace:*",

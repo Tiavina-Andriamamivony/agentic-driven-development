@@ -46,14 +46,34 @@ interface EnvFixture {
   readonly out: readonly string[];
 }
 
+interface BuildEnvSettings {
+  readonly model?: string;
+  readonly modelsByAgent?: Readonly<Record<string, string>>;
+  readonly mcp?: Readonly<Record<string, string>>;
+  readonly maxCostUsd?: number;
+  readonly maxMinutes?: number;
+}
+
+function settingsFields(settings: BuildEnvSettings): {
+  readonly model?: string;
+  readonly modelsByAgent?: Readonly<Record<string, string>>;
+  readonly mcp?: Readonly<Record<string, string>>;
+  readonly maxCostUsd?: number;
+  readonly maxMinutes?: number;
+} {
+  return {
+    ...(settings.model !== undefined ? { model: settings.model } : {}),
+    ...(settings.modelsByAgent !== undefined ? { modelsByAgent: settings.modelsByAgent } : {}),
+    ...(settings.mcp !== undefined ? { mcp: settings.mcp } : {}),
+    ...(settings.maxCostUsd !== undefined ? { maxCostUsd: settings.maxCostUsd } : {}),
+    ...(settings.maxMinutes !== undefined ? { maxMinutes: settings.maxMinutes } : {}),
+  };
+}
+
 function buildEnv(
   replies: readonly AgentRunResult[],
   issue: GitHubIssue = ISSUE,
-  settings?: {
-    readonly model?: string;
-    readonly modelsByAgent?: Readonly<Record<string, string>>;
-    readonly mcp?: Readonly<Record<string, string>>;
-  },
+  settings?: BuildEnvSettings,
 ): EnvFixture {
   const git = createGitSpy();
   const audit = createAuditSpy();
@@ -73,9 +93,7 @@ function buildEnv(
     ask: () => Promise.resolve('y'),
     out: (line: string) => out.push(line),
     dryRun: false,
-    ...(settings?.model !== undefined ? { model: settings.model } : {}),
-    ...(settings?.modelsByAgent !== undefined ? { modelsByAgent: settings.modelsByAgent } : {}),
-    ...(settings?.mcp !== undefined ? { mcp: settings.mcp } : {}),
+    ...(settings === undefined ? {} : settingsFields(settings)),
   };
   return { env, git, audit, github, runtime, out };
 }
@@ -219,6 +237,34 @@ describe('runTicket', () => {
     for (const run of runtime.runs) {
       expect(run.mcp).toEqual({ sqlite: 'uvx', demo: 'node' });
     }
+  });
+
+  it('pauses the run for human intervention when the cost limit is exceeded', async () => {
+    const firstReply = happyReplies()[0] ?? resultFor('');
+    const replies = [
+      { ...firstReply, usage: { promptTokens: 1, completionTokens: 1, costUsd: 5 } },
+      ...happyReplies().slice(1),
+    ];
+    const { env, out } = buildEnv(replies, ISSUE, { maxCostUsd: 1 });
+
+    const code = await runTicket(env);
+
+    expect(code).toBe(1);
+    expect(out.join('\n')).toContain('Needs human intervention: max cost 1.00 usd exceeded');
+  });
+
+  it('lets a run proceed when the cost stays within the limit', async () => {
+    const planner = happyReplies()[0] ?? resultFor('');
+    const replies = [
+      { ...planner, usage: { promptTokens: 1, completionTokens: 1, costUsd: 0.2 } },
+      ...happyReplies().slice(1),
+    ];
+    const { env, out } = buildEnv(replies, ISSUE, { maxCostUsd: 1 });
+
+    const code = await runTicket(env);
+
+    expect(code).toBe(0);
+    expect(out.join('\n')).toContain('Pull request created');
   });
 });
 
@@ -411,6 +457,21 @@ describe('parseRunArguments', () => {
       expect(parseRunArguments(args)).toBeNull();
     },
   );
+
+  it('parses --max-cost-usd and --max-time-min', () => {
+    expect(
+      parseRunArguments(['run', '12', '--max-cost-usd', '1.5', '--max-time-min', '30']),
+    ).toEqual({ issueNumber: 12, dryRun: false, maxCostUsd: 1.5, maxMinutes: 30 });
+  });
+
+  it('rejects non-numeric or non-positive budget limits', () => {
+    expect(parseRunArguments(['run', '12', '--max-cost-usd', 'abc'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--max-cost-usd', '0'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--max-cost-usd', '-1'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--max-time-min', 'abc'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--max-time-min', '0'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--max-time-min'])).toBeNull();
+  });
 
   it.each(['run|12|--model', 'run|12|--model|'])(
     'rejects a missing or empty model value %j',
