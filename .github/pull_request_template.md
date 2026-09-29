@@ -1,18 +1,20 @@
-## Description
+## Object of the PR
 
-<!-- What does this change do and why? A reviewer with no context must understand it. -->
+<!-- One short paragraph: what this PR does, for a reviewer with no context. -->
+
+## Ticket
 
 - Closes #
 
-## Type of change
+## Files changed
 
-- [ ] feat
-- [ ] fix
-- [ ] refactor
-- [ ] test
-- [ ] docs
-- [ ] build / ci
-- [ ] chore
+<!-- One line per file: path — why it changed. Keep it exhaustive and factual. -->
+
+## Idea behind it
+
+<!-- Design rationale: why this approach, what alternatives were considered and rejected. -->
+
+---
 
 ## Checklist
 
