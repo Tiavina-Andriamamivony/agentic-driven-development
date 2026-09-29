@@ -41,6 +41,16 @@ export class NodeGitAdapter implements GitAdapter {
     return result.stdout.length === 0;
   }
 
+  async addWorktree(path: string): Promise<void> {
+    assertNonEmpty(path, 'worktree path');
+    await this.git(['worktree', 'add', '--detach', path]);
+  }
+
+  async removeWorktree(path: string): Promise<void> {
+    assertNonEmpty(path, 'worktree path');
+    await this.git(['worktree', 'remove', '--force', path]);
+  }
+
   private async git(args: readonly string[]): Promise<CommandResult> {
     const result = await this.runner.run('git', args, { cwd: this.root });
     if (result.exitCode !== 0) {

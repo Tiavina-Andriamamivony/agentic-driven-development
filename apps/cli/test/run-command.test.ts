@@ -2,7 +2,14 @@ import type { GitHubAdapter, GitHubIssue } from '@lou/github';
 import type { AgentRunResult } from '@lou/opencode-runtime';
 import { describe, expect, it } from 'vitest';
 import type { RunEnvironment, RunSummary } from '../src/run/run-command';
-import { parseRunArguments, readIssueNumber, runBatch, runTicket } from '../src/run/run-command';
+import type { GitWorktrees } from '../src/run/run-command';
+import {
+  inWorktree,
+  parseRunArguments,
+  readIssueNumber,
+  runBatch,
+  runTicket,
+} from '../src/run/run-command';
 import {
   createAuditSpy,
   createFakeRuntime,
@@ -651,5 +658,75 @@ describe('readIssueNumber', () => {
 
   it('rejects no value', () => {
     expect(readIssueNumber(undefined)).toBeNull();
+  });
+});
+
+describe('inWorktree', () => {
+  function worktreeSpy(): {
+    readonly worktrees: GitWorktrees;
+    readonly added: string[];
+    readonly removed: string[];
+  } {
+    const added: string[] = [];
+    const removed: string[] = [];
+    return {
+      worktrees: {
+        add: (path) => {
+          added.push(path);
+          return Promise.resolve();
+        },
+        remove: (path) => {
+          removed.push(path);
+          return Promise.resolve();
+        },
+      },
+      added,
+      removed,
+    };
+  }
+
+  it('adds the worktree before the run and removes it after', async () => {
+    const spy = worktreeSpy();
+    const events: string[] = [];
+
+    const result = await inWorktree(true, spy.worktrees, '/wt', () => {
+      events.push('run');
+      return Promise.resolve(7);
+    });
+
+    expect(result).toBe(7);
+    expect(spy.added).toEqual(['/wt']);
+    expect(spy.removed).toEqual(['/wt']);
+    expect(events).toEqual(['run']);
+  });
+
+  it('removes the worktree when the run fails and rethrows the error', async () => {
+    const spy = worktreeSpy();
+
+    await expect(
+      inWorktree(true, spy.worktrees, '/wt', () => Promise.reject(new Error('boom'))),
+    ).rejects.toThrow('boom');
+    expect(spy.removed).toEqual(['/wt']);
+  });
+
+  it('runs in place without touching the worktrees for a single ticket', async () => {
+    const spy = worktreeSpy();
+
+    const result = await inWorktree(false, spy.worktrees, '/wt', () => Promise.resolve(0));
+
+    expect(result).toBe(0);
+    expect(spy.added).toEqual([]);
+    expect(spy.removed).toEqual([]);
+  });
+
+  it('tolerates a failing worktree cleanup', async () => {
+    const worktrees: GitWorktrees = {
+      add: () => Promise.resolve(),
+      remove: () => Promise.reject(new Error('locked')),
+    };
+
+    const result = await inWorktree(true, worktrees, '/wt', () => Promise.resolve(3));
+
+    expect(result).toBe(3);
   });
 });
