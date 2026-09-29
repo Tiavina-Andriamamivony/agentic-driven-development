@@ -1,7 +1,7 @@
 import type { CommandRunner } from '@lou/command-runner';
 import { NodeCommandRunner } from '@lou/command-runner';
-import type { AgentRuntime } from './runtime.ts';
-import type { AgentRunInput, AgentRunResult, AgentStatus } from './types.ts';
+import type { AgentRuntime } from '@lou/agent-runtime';
+import type { AgentRunInput, AgentRunResult, AgentStatus } from '@lou/agent-runtime';
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 const MCP_CONFIG_ENV = 'OPENCODE_CONFIG_CONTENT';

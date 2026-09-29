@@ -14,7 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@lou/budget": "workspace:*",
+    "@lou/agent-runtime": "workspace:*",
     "@lou/command-runner": "workspace:*"
   },
   "devDependencies": {

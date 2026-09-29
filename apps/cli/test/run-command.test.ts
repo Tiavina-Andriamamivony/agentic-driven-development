@@ -1,9 +1,12 @@
 import type { GitHubAdapter, GitHubIssue } from '@lou/github';
-import type { AgentRunResult } from '@lou/opencode-runtime';
+import type { AgentRunResult } from '@lou/agent-runtime';
+import { ClaudeCodeRuntime } from '@lou/claude-code-runtime';
+import { OpenCodeRuntime } from '@lou/opencode-runtime';
 import { describe, expect, it } from 'vitest';
 import type { RunEnvironment, RunSummary } from '../src/run/run-command';
 import type { GitWorktrees } from '../src/run/run-command';
 import {
+  createAgentRuntime,
   inWorktree,
   parseRunArguments,
   readIssueNumber,
@@ -644,6 +647,29 @@ describe('parseRunArguments multi-issue', () => {
     expect(parseRunArguments(['run', '12', '--max-concurrency', '2.5'])).toBeNull();
     expect(parseRunArguments(['run', '12', '--max-concurrency', 'abc'])).toBeNull();
     expect(parseRunArguments(['run', '12', '--max-concurrency'])).toBeNull();
+  });
+
+  it('parses a --runtime option', () => {
+    expect(parseRunArguments(['run', '12', '--runtime', 'claude'])).toEqual({
+      issueNumbers: [12],
+      dryRun: false,
+      runtime: 'claude',
+    });
+  });
+
+  it('rejects an unknown --runtime value', () => {
+    expect(parseRunArguments(['run', '12', '--runtime', 'codex'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--runtime'])).toBeNull();
+  });
+});
+
+describe('createAgentRuntime', () => {
+  it('builds the opencode runtime by default', () => {
+    expect(createAgentRuntime('opencode')).toBeInstanceOf(OpenCodeRuntime);
+  });
+
+  it('builds the claude runtime when asked for', () => {
+    expect(createAgentRuntime('claude')).toBeInstanceOf(ClaudeCodeRuntime);
   });
 });
 

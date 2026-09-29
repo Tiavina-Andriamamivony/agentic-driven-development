@@ -26,15 +26,19 @@ import {
   runUpgrade,
 } from './upgrade/upgrade-command.ts';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MS, maybeNotifyUpgrade } from './upgrade/upgrade-notice.ts';
+import { AGENT_RUNTIME_NAMES, readAgentRuntimeName } from './run/agent-runtime-factory.ts';
+import type { AgentRuntimeName } from './run/agent-runtime-factory.ts';
 import { createNodeRunsStore, runListRuns } from './runs/runs-list.ts';
 import type { RunsStore } from './runs/runs-list.ts';
+
+const RUNTIME_FLAG = '--runtime';
 
 const USAGE = `Usage: lou <command> [args]
 
 Commands:
-  doctor  Check the runtime prerequisites: lou doctor.
+  doctor  Check the runtime prerequisites: lou doctor [--runtime opencode|claude].
   init    Read-only project onboarding report: lou init [--json].
-  run     Drive one or more GitHub issues to a pull request: lou run <issue-number> [<issue-number> ...] [--dry-run] [--model <name>] [--model-by-agent planner=...,developer=...] [--mcp name=command] [--max-cost-usd <usd>] [--max-time-min <minutes>] [--max-concurrency <n>].
+  run     Drive one or more GitHub issues to a pull request: lou run <issue-number> [<issue-number> ...] [--dry-run] [--runtime opencode|claude] [--model <name>] [--model-by-agent planner=...,developer=...] [--mcp name=command] [--max-cost-usd <usd>] [--max-time-min <minutes>] [--max-concurrency <n>].
   runs    List finished and in-flight runs: lou runs [--json].
   upgrade Self-update to the latest Lou version: lou upgrade [<version>].`;
 
@@ -67,14 +71,25 @@ const COMMANDS: Record<string, CommandHandler> = {
 };
 
 function handleDoctor(argv: readonly string[], env: CliEnv): Promise<number> {
-  if (argv.length > 1) {
-    env.err('Usage: lou doctor');
+  const parsed = parseDoctorArguments(argv);
+  if (parsed === null) {
+    env.err(`Usage: lou doctor [--runtime ${AGENT_RUNTIME_NAMES.join('|')}]`);
     return Promise.resolve(1);
   }
-  return runDoctor(env.doctorProbes ?? createRealDoctorProbes(env.cwd)).then((report) => {
+  return runDoctor(env.doctorProbes ?? createRealDoctorProbes(env.cwd), parsed).then((report) => {
     env.out(formatDoctorReport(report, resolveStyler(env)));
     return report.code;
   });
+}
+
+function parseDoctorArguments(argv: readonly string[]): AgentRuntimeName | null {
+  if (argv.length === 1) {
+    return 'opencode';
+  }
+  if (argv.length !== 3 || argv[1] !== RUNTIME_FLAG) {
+    return null;
+  }
+  return readAgentRuntimeName(argv[2] ?? '');
 }
 
 function handleRuns(argv: readonly string[], env: CliEnv): Promise<number> {

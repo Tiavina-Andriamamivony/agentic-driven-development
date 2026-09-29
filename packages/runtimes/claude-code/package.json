@@ -1,9 +1,9 @@
 {
-  "name": "@lou/reviewer",
+  "name": "@lou/claude-code-runtime",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Review agent that runs a structured code review through an agent runtime and returns a verdict.",
+  "description": "AgentRuntime port implementation driving the claude CLI.",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@lou/agent-runtime": "workspace:*",
-    "@lou/state-machine": "workspace:*"
+    "@lou/command-runner": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

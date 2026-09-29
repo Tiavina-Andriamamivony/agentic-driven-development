@@ -1,9 +1,4 @@
-import type {
-  AgentRunInput,
-  AgentRunResult,
-  AgentStatus,
-  AgentRuntime,
-} from '@lou/opencode-runtime';
+import type { AgentRunInput, AgentRunResult, AgentStatus, AgentRuntime } from '@lou/agent-runtime';
 
 export interface RuntimeReply {
   readonly exitCode: number;

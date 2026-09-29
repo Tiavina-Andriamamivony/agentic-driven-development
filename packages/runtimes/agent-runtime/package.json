@@ -1,9 +1,9 @@
 {
-  "name": "@lou/reviewer",
+  "name": "@lou/agent-runtime",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Review agent that runs a structured code review through an agent runtime and returns a verdict.",
+  "description": "The AgentRuntime port every agent adapter implements, plus budget accounting.",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -14,8 +14,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@lou/agent-runtime": "workspace:*",
-    "@lou/state-machine": "workspace:*"
+    "@lou/budget": "workspace:*",
+    "@lou/command-runner": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

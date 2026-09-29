@@ -1,9 +1,4 @@
-import type {
-  AgentRunInput,
-  AgentRunResult,
-  AgentRuntime,
-  AgentStatus,
-} from '@lou/opencode-runtime';
+import type { AgentRunInput, AgentRunResult, AgentRuntime, AgentStatus } from '@lou/agent-runtime';
 import { describe, expect, it } from 'vitest';
 import { ReviewerAgent } from '../src/reviewer-agent.ts';
 

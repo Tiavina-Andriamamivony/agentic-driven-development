@@ -1,4 +1,4 @@
-import type { AgentRuntime } from '@lou/opencode-runtime';
+import type { AgentRuntime } from '@lou/agent-runtime';
 import type { Command } from '@lou/state-machine';
 import { COMMANDS } from '@lou/state-machine';
 
