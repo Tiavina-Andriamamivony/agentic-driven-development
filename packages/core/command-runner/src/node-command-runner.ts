@@ -13,8 +13,9 @@ export class NodeCommandRunner implements CommandRunner {
       cwd: options.cwd,
       env: { ...process.env, ...options.env },
       shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [stdinMode(options.stdin), 'pipe', 'pipe'],
     });
+    writeStdin(child, options.stdin);
     const running = new RunningCommand(child, options);
     try {
       const exitCode = await waitForExit(child);
@@ -25,6 +26,18 @@ export class NodeCommandRunner implements CommandRunner {
       throw error;
     }
   }
+}
+
+function stdinMode(stdin: string | undefined): 'pipe' | 'ignore' {
+  return stdin === undefined ? 'ignore' : 'pipe';
+}
+
+function writeStdin(child: ChildProcess, stdin: string | undefined): void {
+  if (stdin === undefined) {
+    return;
+  }
+  child.stdin?.on('error', () => undefined);
+  child.stdin?.end(stdin);
 }
 
 function waitForExit(child: ChildProcess): Promise<number> {

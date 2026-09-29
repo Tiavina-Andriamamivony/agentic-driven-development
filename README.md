@@ -84,7 +84,10 @@ The script is short and readable: it downloads the Lou sources from this reposit
 `pnpm install --prod` with a frozen lockfile and no scripts, and wires the `lou` launcher
 onto your PATH — no compiler, no global package pollution. Upgrade later with
 `lou upgrade` (or `lou upgrade v0.2.0`). Requirements: Node.js >= 22.7, plus OpenCode
-installed for `lou run` (`lou doctor` tells you if something is missing).
+installed for `lou run` (`lou doctor` tells you if something is missing). Lou ships two
+agent runtime adapters — OpenCode (default) and Claude Code — selected with
+`lou run <issue> --runtime opencode|claude`; the port is the same, so governance,
+verification and audit behave identically on either.
 
 ## How it works
 
@@ -135,8 +138,12 @@ and review steps, and `lou init` produces a zero-write onboarding report. Under 
   transition rules, iteration budgets) with explicit human gates.
 - `@lou/orchestrator` — the loop: planner, test-writer, developer, reviewer, test runner,
   git and GitHub, wired to the state machine and recorded in the audit trail.
-- `@lou/opencode-runtime` — the `AgentRuntime` port plus an `OpenCodeRuntime` adapter
-  driving the `opencode run` CLI (spawn, timeout, abort, status).
+- `@lou/agent-runtime` — the runtime-agnostic port every agent adapter implements, plus
+  cost/time budget accounting.
+- `@lou/opencode-runtime` — the `OpenCodeRuntime` adapter driving the `opencode run` CLI
+  (spawn, timeout, abort, status).
+- `@lou/claude-code-runtime` — the `ClaudeCodeRuntime` adapter driving the `claude` CLI
+  (`claude -p`, JSON output for cost, MCP config, spawn/timeout/abort/status).
 - `@lou/git` — branch, commit, push, clean check, plus detached worktrees for isolated
   batch runs.
 - `@lou/github` — the `gh` CLI adapter: fetch issues, open pull requests.
@@ -195,7 +202,8 @@ Agent adoption is a governance decision, not a tool choice:
 - **Fail closed** — when a critical operation cannot be assessed, the run stops. It never
   executes by default.
 - **Model agnostic** — different models orchestrated for different tasks (`--model`,
-  `--model-by-agent`). No single vendor lock-in.
+  `--model-by-agent`), and more than one agent runtime (`--runtime opencode|claude`).
+  No single vendor lock-in.
 - **Policy at the platform level** — rules live in enforced policy and lint/CI gates, not
   in prompts anyone can forget.
 - **Reproducible** — a run is a documented, bounded process, not a black box.
@@ -275,7 +283,9 @@ lou/
 │   ├── policy/
 │   │   └── engine/               # rules, risk classification, permissions
 │   └── runtimes/
-│       └── opencode/             # AgentRuntime port + OpenCode adapter
+│       ├── agent-runtime/        # the AgentRuntime port + budget accounting
+│       ├── opencode/             # OpenCode adapter
+│       └── claude-code/          # Claude Code adapter
 ├── demos/                        # demo recording harness (asciinema)
 ├── docs/
 │   └── cahier-des-charges.md     # product specification (FR)

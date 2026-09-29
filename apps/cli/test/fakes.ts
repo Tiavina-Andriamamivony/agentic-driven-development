@@ -1,12 +1,7 @@
 import type { AuditLog, AuditEvent, AuditEventPayload } from '@lou/audit';
 import type { GitAdapter } from '@lou/git';
 import type { GitHubAdapter, GitHubIssue, PullRequest, PullRequestInput } from '@lou/github';
-import type {
-  AgentRunInput,
-  AgentRunResult,
-  AgentRuntime,
-  AgentStatus,
-} from '@lou/opencode-runtime';
+import type { AgentRunInput, AgentRunResult, AgentRuntime, AgentStatus } from '@lou/agent-runtime';
 import type { TestResult, TestRunner, TestRunOptions } from '@lou/test-runner';
 
 export function createFakeRuntime(

@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import type { SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
+import type { AgentRuntimeName } from '../run/agent-runtime-factory.ts';
 import type { DoctorCheck, DoctorProbes } from './doctor-command.ts';
 
 interface CommandOutcome {
@@ -21,12 +22,13 @@ export function createRealDoctorProbes(cwd: string): DoctorProbes {
       Promise.resolve(
         commandCheck('gh', ['auth', 'status'], 'GitHub CLI', 'gh not found or not authenticated'),
       ),
-    opencode: () =>
-      Promise.resolve(
-        commandCheck('opencode', ['--version'], 'opencode', 'opencode not found on PATH'),
-      ),
+    agentRuntime: (name) => Promise.resolve(runtimeProbe(name)),
     gitRepository: () => Promise.resolve(gitRepositoryProbe(cwd)),
   };
+}
+
+function runtimeProbe(name: AgentRuntimeName): DoctorCheck {
+  return commandCheck(name, ['--version'], name, `${name} not found on PATH`);
 }
 
 function nodeProbe(): DoctorCheck {

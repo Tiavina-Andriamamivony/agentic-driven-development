@@ -1,13 +1,20 @@
 import { NodeAuditLog } from '@lou/audit';
 import type { AuditLog, AuditEventPayload } from '@lou/audit';
 import { RunBudget } from '@lou/budget';
-import { BudgetedAgentRuntime } from '@lou/opencode-runtime';
+import { BudgetedAgentRuntime } from '@lou/agent-runtime';
 import { NodeGitHubAdapter } from '@lou/github';
 import type { GitHubAdapter, GitHubIssue } from '@lou/github';
 import { NodeGitAdapter } from '@lou/git';
 import type { GitAdapter } from '@lou/git';
-import { OpenCodeRuntime } from '@lou/opencode-runtime';
-import type { AgentRuntime } from '@lou/opencode-runtime';
+export { createAgentRuntime } from './agent-runtime-factory.ts';
+export type { AgentRuntimeName } from './agent-runtime-factory.ts';
+import {
+  createAgentRuntime,
+  DEFAULT_AGENT_RUNTIME,
+  readAgentRuntimeName,
+} from './agent-runtime-factory.ts';
+import type { AgentRuntimeName } from './agent-runtime-factory.ts';
+import type { AgentRuntime } from '@lou/agent-runtime';
 import { Orchestrator } from '@lou/orchestrator';
 import type {
   HumanKeeper,
@@ -77,6 +84,7 @@ interface ProductionRunOptions {
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
+  readonly runtime?: AgentRuntimeName;
 }
 
 export interface RunArguments {
@@ -88,9 +96,11 @@ export interface RunArguments {
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
+  readonly runtime?: AgentRuntimeName;
 }
 
 const DRY_RUN_FLAG = '--dry-run';
+const RUNTIME_FLAG = '--runtime';
 const MODEL_FLAG = '--model';
 const MODEL_BY_AGENT_FLAG = '--model-by-agent';
 const MCP_FLAG = '--mcp';
@@ -131,6 +141,7 @@ interface FlagSettings {
   readonly maxCostUsd?: number;
   readonly maxMinutes?: number;
   readonly maxConcurrency?: number;
+  readonly runtime?: AgentRuntimeName;
 }
 
 function flagSettings(flags: FlagState): FlagSettings {
@@ -141,6 +152,7 @@ function flagSettings(flags: FlagState): FlagSettings {
     ...(flags.maxCostUsd !== undefined ? { maxCostUsd: flags.maxCostUsd } : {}),
     ...(flags.maxMinutes !== undefined ? { maxMinutes: flags.maxMinutes } : {}),
     ...(flags.maxConcurrency !== undefined ? { maxConcurrency: flags.maxConcurrency } : {}),
+    ...(flags.runtime !== undefined ? { runtime: flags.runtime } : {}),
   };
 }
 
@@ -167,6 +179,7 @@ interface FlagState {
   maxCostUsd: number | undefined;
   maxMinutes: number | undefined;
   maxConcurrency: number | undefined;
+  runtime: AgentRuntimeName | undefined;
 }
 
 type FlagApplier = (value: string, flags: FlagState) => boolean;
@@ -178,6 +191,7 @@ const FLAG_APPLIERS: Readonly<Record<string, FlagApplier>> = {
   [MAX_COST_FLAG]: applyMaxCost,
   [MAX_TIME_FLAG]: applyMaxMinutes,
   [MAX_CONCURRENCY_FLAG]: applyMaxConcurrency,
+  [RUNTIME_FLAG]: applyRuntime,
 };
 
 function parseFlags(rest: readonly string[]): FlagState | null {
@@ -189,6 +203,7 @@ function parseFlags(rest: readonly string[]): FlagState | null {
     maxCostUsd: undefined,
     maxMinutes: undefined,
     maxConcurrency: undefined,
+    runtime: undefined,
   };
   for (let index = 0; index < rest.length; index += 1) {
     const nextIndex = applyFlag(rest, index, flags);
@@ -272,6 +287,15 @@ function applyMaxConcurrency(value: string, flags: FlagState): boolean {
     return false;
   }
   flags.maxConcurrency = concurrency;
+  return true;
+}
+
+function applyRuntime(value: string, flags: FlagState): boolean {
+  const runtime = readAgentRuntimeName(value);
+  if (runtime === null) {
+    return false;
+  }
+  flags.runtime = runtime;
   return true;
 }
 
@@ -425,7 +449,7 @@ async function runTicketWithin(
     git: new NodeGitAdapter({ root: workspace }),
     tests: new NodeTestRunner(),
     audit: new NodeAuditLog({ file: auditFile }),
-    runtime: new OpenCodeRuntime(),
+    runtime: createAgentRuntime(options.runtime ?? DEFAULT_AGENT_RUNTIME),
     conventions: 'conventional commits',
     ask: terminalQuestion,
     out: (line) => {

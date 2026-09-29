@@ -14,11 +14,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@lou/agent-runtime": "workspace:*",
     "@lou/audit": "workspace:*",
     "@lou/budget": "workspace:*",
     "@lou/git": "workspace:*",
     "@lou/github": "workspace:*",
-    "@lou/opencode-runtime": "workspace:*",
     "@lou/reviewer": "workspace:*",
     "@lou/state-machine": "workspace:*",
     "@lou/test-runner": "workspace:*"

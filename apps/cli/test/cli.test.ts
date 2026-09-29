@@ -94,7 +94,7 @@ describe('runCli', () => {
       node: () => Promise.resolve({ label: 'Node runtime', ok: true, detail: 'v24.18.0' }),
       pnpm: () => Promise.resolve({ label: 'pnpm', ok: true, detail: '10.9.0' }),
       gitHubCli: () => Promise.resolve({ label: 'GitHub CLI', ok: true, detail: 'authenticated' }),
-      opencode: () => Promise.resolve({ label: 'opencode', ok: true, detail: '' }),
+      agentRuntime: (name) => Promise.resolve({ label: name, ok: true, detail: '' }),
       gitRepository: () => Promise.resolve({ label: 'Git repository', ok: true, detail: '' }),
     };
     const code = await runCli(['doctor'], {
@@ -117,7 +117,7 @@ describe('runCli', () => {
       pnpm: () => Promise.resolve({ label: 'pnpm', ok: true, detail: '10.9.0' }),
       gitHubCli: () =>
         Promise.resolve({ label: 'GitHub CLI', ok: false, detail: 'not authenticated' }),
-      opencode: () => Promise.resolve({ label: 'opencode', ok: true, detail: '' }),
+      agentRuntime: (name) => Promise.resolve({ label: name, ok: true, detail: '' }),
       gitRepository: () => Promise.resolve({ label: 'Git repository', ok: true, detail: '' }),
     };
     const code = await runCli(['doctor', 'extra'], {
@@ -130,6 +130,51 @@ describe('runCli', () => {
 
     expect(code).toBe(1);
     expect(collector.err.join('\n')).toContain('Usage: lou doctor');
+  });
+
+  it('probes the runtime named by --runtime', async () => {
+    const collector = createCollector();
+    const seen: string[] = [];
+    const doctorProbes: DoctorProbes = {
+      node: () => Promise.resolve({ label: 'Node runtime', ok: true, detail: 'v24.18.0' }),
+      pnpm: () => Promise.resolve({ label: 'pnpm', ok: true, detail: '10.9.0' }),
+      gitHubCli: () => Promise.resolve({ label: 'GitHub CLI', ok: true, detail: 'ok' }),
+      agentRuntime: (name) => {
+        seen.push(name);
+        return Promise.resolve({ label: name, ok: true, detail: '' });
+      },
+      gitRepository: () => Promise.resolve({ label: 'Git repository', ok: true, detail: '' }),
+    };
+    const code = await runCli(['doctor', '--runtime', 'claude'], {
+      reader: createMemoryReader({}),
+      cwd: '/work',
+      doctorProbes,
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(0);
+    expect(seen).toEqual(['claude']);
+  });
+
+  it('rejects an unknown --runtime in doctor', async () => {
+    const collector = createCollector();
+    const code = await runCli(['doctor', '--runtime', 'codex'], {
+      reader: createMemoryReader({}),
+      cwd: '/work',
+      doctorProbes: {
+        node: () => Promise.resolve({ label: 'Node runtime', ok: true, detail: '' }),
+        pnpm: () => Promise.resolve({ label: 'pnpm', ok: true, detail: '' }),
+        gitHubCli: () => Promise.resolve({ label: 'GitHub CLI', ok: true, detail: '' }),
+        agentRuntime: (name) => Promise.resolve({ label: name, ok: true, detail: '' }),
+        gitRepository: () => Promise.resolve({ label: 'Git repository', ok: true, detail: '' }),
+      },
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(1);
+    expect(collector.err.join('\n')).toContain('--runtime opencode|claude');
   });
 
   it('bails out of run when opencode is missing and the session is not interactive', async () => {

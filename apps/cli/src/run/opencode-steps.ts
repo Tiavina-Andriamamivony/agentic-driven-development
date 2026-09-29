@@ -1,4 +1,4 @@
-import type { AgentRuntime } from '@lou/opencode-runtime';
+import type { AgentRuntime } from '@lou/agent-runtime';
 import type {
   ChangeNote,
   OrchestratorSteps,

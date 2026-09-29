@@ -56,12 +56,18 @@ importers:
 
   apps/cli:
     dependencies:
+      '@lou/agent-runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtimes/agent-runtime
       '@lou/audit':
         specifier: workspace:*
         version: link:../../packages/core/audit
       '@lou/budget':
         specifier: workspace:*
         version: link:../../packages/core/budget
+      '@lou/claude-code-runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtimes/claude-code
       '@lou/git':
         specifier: workspace:*
         version: link:../../packages/git
@@ -93,9 +99,9 @@ importers:
 
   packages/agents/reviewer:
     dependencies:
-      '@lou/opencode-runtime':
+      '@lou/agent-runtime':
         specifier: workspace:*
-        version: link:../../runtimes/opencode
+        version: link:../../runtimes/agent-runtime
       '@lou/state-machine':
         specifier: workspace:*
         version: link:../../core/state-machine
@@ -145,6 +151,9 @@ importers:
 
   packages/core/orchestrator:
     dependencies:
+      '@lou/agent-runtime':
+        specifier: workspace:*
+        version: link:../../runtimes/agent-runtime
       '@lou/audit':
         specifier: workspace:*
         version: link:../audit
@@ -157,9 +166,6 @@ importers:
       '@lou/github':
         specifier: workspace:*
         version: link:../../integrations/github
-      '@lou/opencode-runtime':
-        specifier: workspace:*
-        version: link:../../runtimes/opencode
       '@lou/reviewer':
         specifier: workspace:*
         version: link:../../agents/reviewer
@@ -250,11 +256,43 @@ importers:
         specifier: ^2.1.5
         version: 2.1.9(@types/node@22.20.4)
 
-  packages/runtimes/opencode:
+  packages/runtimes/agent-runtime:
     dependencies:
       '@lou/budget':
         specifier: workspace:*
         version: link:../../core/budget
+      '@lou/command-runner':
+        specifier: workspace:*
+        version: link:../../core/command-runner
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.5
+        version: 2.1.9(@types/node@22.20.4)
+
+  packages/runtimes/claude-code:
+    dependencies:
+      '@lou/agent-runtime':
+        specifier: workspace:*
+        version: link:../agent-runtime
+      '@lou/command-runner':
+        specifier: workspace:*
+        version: link:../../core/command-runner
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.5
+        version: 2.1.9(@types/node@22.20.4)
+
+  packages/runtimes/opencode:
+    dependencies:
+      '@lou/agent-runtime':
+        specifier: workspace:*
+        version: link:../agent-runtime
       '@lou/command-runner':
         specifier: workspace:*
         version: link:../../core/command-runner

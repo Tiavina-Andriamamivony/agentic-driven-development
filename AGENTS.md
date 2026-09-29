@@ -12,10 +12,15 @@ use the **Lou** brand.
 
 - `packages/core/state-machine/` — deterministic, bounded workflow engine (phases,
   commands, transition rules, iteration budgets, human approval gates).
-- `packages/runtimes/opencode/` — the `AgentRuntime` port plus an `OpenCodeRuntime`
-  adapter that drives the `opencode run` CLI (spawn, timeout, abort, status).
+- `packages/runtimes/agent-runtime/` — the runtime-agnostic `AgentRuntime` port every
+  agent adapter implements, plus `BudgetedAgentRuntime` (cost/time accounting).
+- `packages/runtimes/opencode/` — the `OpenCodeRuntime` adapter driving the `opencode run`
+  CLI (spawn, timeout, abort, status).
+- `packages/runtimes/claude-code/` — the `ClaudeCodeRuntime` adapter driving the `claude`
+  CLI (`claude -p --output-format json`, MCP config, cost/usage parsing).
 - `packages/core/command-runner/` — the shared `CommandRunner` port (`CommandRunner` +
-  `NodeCommandRunner` + `RunningCommand`) used by every adapter that shells out.
+  `NodeCommandRunner` + `RunningCommand`) used by every adapter that shells out; accepts
+  an optional `stdin` for prompts that outgrow argument limits.
 - `packages/git/` — the `GitAdapter` port plus a `NodeGitAdapter` (create branch, commit,
   push, current branch, clean check) driving the git CLI through the command runner.
 - `packages/core/test-runner/` — the `TestRunner` port plus a `NodeTestRunner` that runs

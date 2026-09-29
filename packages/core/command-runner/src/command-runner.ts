@@ -10,6 +10,7 @@ export interface CommandRunOptions {
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   readonly env?: Readonly<Record<string, string>>;
+  readonly stdin?: string;
 }
 
 export interface CommandRunner {
