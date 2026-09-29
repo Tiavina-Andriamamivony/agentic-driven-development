@@ -14,6 +14,8 @@ import {
   readAgentRuntimeName,
 } from './agent-runtime-factory.ts';
 import type { AgentRuntimeName } from './agent-runtime-factory.ts';
+import { createSandboxedRunner } from './sandboxed-runner.ts';
+import { AGENT_ROLE, GITHUB_ROLE, GIT_ROLE, TESTS_ROLE } from '@lou/policy-engine';
 import type { AgentRuntime } from '@lou/agent-runtime';
 import { Orchestrator } from '@lou/orchestrator';
 import type {
@@ -476,11 +478,27 @@ function buildAdapters(
   wiring: RunTicketWiring,
 ): ProductionAdapters {
   return {
-    github: wiring.github ?? new NodeGitHubAdapter({ root: workspace }),
-    git: wiring.git ?? new NodeGitAdapter({ root: workspace }),
-    tests: wiring.tests ?? new NodeTestRunner(),
+    github:
+      wiring.github ??
+      new NodeGitHubAdapter({
+        root: workspace,
+        runner: createSandboxedRunner(workspace, GITHUB_ROLE),
+      }),
+    git:
+      wiring.git ??
+      new NodeGitAdapter({
+        root: workspace,
+        runner: createSandboxedRunner(workspace, GIT_ROLE),
+      }),
+    tests:
+      wiring.tests ?? new NodeTestRunner({ runner: createSandboxedRunner(workspace, TESTS_ROLE) }),
     audit: wiring.audit ?? new NodeAuditLog({ file: auditFile }),
-    runtime: wiring.runtime ?? createAgentRuntime(options.runtime ?? DEFAULT_AGENT_RUNTIME),
+    runtime:
+      wiring.runtime ??
+      createAgentRuntime(
+        options.runtime ?? DEFAULT_AGENT_RUNTIME,
+        createSandboxedRunner(workspace, AGENT_ROLE),
+      ),
   };
 }
 
