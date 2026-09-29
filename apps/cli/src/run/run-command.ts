@@ -441,17 +441,59 @@ async function runTicketWithin(
   workspace: string,
   many: boolean,
 ): Promise<number> {
+  return runTicket(buildRunEnvironment({ options, issueNumber, workspace, many }));
+}
+
+interface RunTicketWiring {
+  readonly github?: GitHubAdapter;
+  readonly git?: GitAdapter;
+  readonly tests?: TestRunner;
+  readonly audit?: AuditLog;
+  readonly runtime?: AgentRuntime;
+  readonly ask?: (question: string) => Promise<string>;
+}
+
+interface RunTicketRequest {
+  readonly options: ProductionRunOptions;
+  readonly issueNumber: number;
+  readonly workspace: string;
+  readonly many: boolean;
+  readonly wiring?: RunTicketWiring;
+}
+
+interface ProductionAdapters {
+  readonly github: GitHubAdapter;
+  readonly git: GitAdapter;
+  readonly tests: TestRunner;
+  readonly audit: AuditLog;
+  readonly runtime: AgentRuntime;
+}
+
+function buildAdapters(
+  workspace: string,
+  auditFile: string,
+  options: ProductionRunOptions,
+  wiring: RunTicketWiring,
+): ProductionAdapters {
+  return {
+    github: wiring.github ?? new NodeGitHubAdapter({ root: workspace }),
+    git: wiring.git ?? new NodeGitAdapter({ root: workspace }),
+    tests: wiring.tests ?? new NodeTestRunner(),
+    audit: wiring.audit ?? new NodeAuditLog({ file: auditFile }),
+    runtime: wiring.runtime ?? createAgentRuntime(options.runtime ?? DEFAULT_AGENT_RUNTIME),
+  };
+}
+
+export function buildRunEnvironment(request: RunTicketRequest): RunEnvironment {
+  const { options, issueNumber, workspace, many } = request;
+  const wiring = request.wiring ?? {};
   const auditFile = join(options.cwd, '.lou', 'runs', `run-${issueNumber}.jsonl`);
-  return runTicket({
+  return {
     issueNumber,
     workspace,
-    github: new NodeGitHubAdapter({ root: workspace }),
-    git: new NodeGitAdapter({ root: workspace }),
-    tests: new NodeTestRunner(),
-    audit: new NodeAuditLog({ file: auditFile }),
-    runtime: createAgentRuntime(options.runtime ?? DEFAULT_AGENT_RUNTIME),
+    ...buildAdapters(workspace, auditFile, options, wiring),
     conventions: 'conventional commits',
-    ask: terminalQuestion,
+    ask: wiring.ask ?? terminalQuestion,
     out: (line) => {
       options.out(many ? `[#${issueNumber}] ${line}` : line);
     },
@@ -460,7 +502,7 @@ async function runTicketWithin(
     ...agentSettings(options),
     ...(options.maxCostUsd !== undefined ? { maxCostUsd: options.maxCostUsd } : {}),
     ...(options.maxMinutes !== undefined ? { maxMinutes: options.maxMinutes } : {}),
-  });
+  };
 }
 
 export async function runBatch(

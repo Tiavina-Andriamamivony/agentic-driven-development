@@ -39,11 +39,16 @@ interface GitSpy {
 
 export function createGitSpy(): GitSpy {
   const branches: string[] = [];
+  const staged: string[] = [];
   const commits: string[] = [];
   const pushes = { count: 0 };
   const git: GitAdapter = {
     createBranch(name: string): Promise<void> {
       branches.push(name);
+      return Promise.resolve();
+    },
+    stage(paths: readonly string[]): Promise<void> {
+      staged.push(...paths);
       return Promise.resolve();
     },
     commit(message: string): Promise<void> {

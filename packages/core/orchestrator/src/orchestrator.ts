@@ -62,6 +62,7 @@ export class Orchestrator {
   private lastPlannedFeedback: readonly string[] = [];
   private understanding: Understanding | null = null;
   private implementation: ChangeNote = { changedFiles: [], summary: '(no implementation)' };
+  private changedFiles: string[] = [];
   private testReport = '(no tests run)';
   private reviewNote: ReviewNote | null = null;
 
@@ -252,6 +253,17 @@ export class Orchestrator {
   }
 
   private async publish(): Promise<OrchestratorOutcome | null> {
+    if (this.changedFiles.length === 0) {
+      return this.failure('the agents reported no file change');
+    }
+    await this.git.stage(this.changedFiles);
+    await this.audit.record(
+      this.event('tool_called', {
+        tool: 'git.stage',
+        risk: 'low',
+        target: `${this.changedFiles.length}`,
+      }),
+    );
     await this.git.commit(this.plan.commitMessage);
     await this.audit.record(this.event('git_commit', { target: this.plan.commitMessage }));
     await this.git.push();
@@ -280,6 +292,7 @@ export class Orchestrator {
 
   private async recordChanges(note: ChangeNote): Promise<void> {
     for (const file of note.changedFiles) {
+      this.changedFiles.push(file);
       await this.audit.record(this.event('file_changed', { target: file }));
     }
   }

@@ -22,6 +22,16 @@ export class NodeGitAdapter implements GitAdapter {
     await this.git(['checkout', '-b', name]);
   }
 
+  async stage(paths: readonly string[]): Promise<void> {
+    if (paths.length === 0) {
+      return;
+    }
+    for (const path of paths) {
+      assertNonEmpty(path, 'staged path');
+    }
+    await this.git(['add', '--', ...paths]);
+  }
+
   async commit(message: string): Promise<void> {
     assertNonEmpty(message, 'commit message');
     await this.git(['commit', '-m', message]);
