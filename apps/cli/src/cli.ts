@@ -26,6 +26,8 @@ import {
   runUpgrade,
 } from './upgrade/upgrade-command.ts';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MS, maybeNotifyUpgrade } from './upgrade/upgrade-notice.ts';
+import { createNodeRunsStore, runListRuns } from './runs/runs-list.ts';
+import type { RunsStore } from './runs/runs-list.ts';
 
 const USAGE = `Usage: lou <command> [args]
 
@@ -33,6 +35,7 @@ Commands:
   doctor  Check the runtime prerequisites: lou doctor.
   init    Read-only project onboarding report: lou init [--json].
   run     Drive one or more GitHub issues to a pull request: lou run <issue-number> [<issue-number> ...] [--dry-run] [--model <name>] [--model-by-agent planner=...,developer=...] [--mcp name=command] [--max-cost-usd <usd>] [--max-time-min <minutes>] [--max-concurrency <n>].
+  runs    List finished and in-flight runs: lou runs [--json].
   upgrade Self-update to the latest Lou version: lou upgrade [<version>].`;
 
 const HELP_COMMANDS = new Set(['--help', '-h', 'help']);
@@ -50,6 +53,7 @@ export interface CliEnv {
   readonly openCodeInstaller?: OpenCodeInstaller;
   readonly upgrade?: UpgradeDependencies;
   readonly upgradeNotice?: () => Promise<void>;
+  readonly runsStore?: RunsStore;
 }
 
 type CommandHandler = (argv: readonly string[], env: CliEnv) => Promise<number>;
@@ -59,6 +63,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   run: handleRun,
   doctor: handleDoctor,
   upgrade: handleUpgrade,
+  runs: handleRuns,
 };
 
 function handleDoctor(argv: readonly string[], env: CliEnv): Promise<number> {
@@ -69,6 +74,20 @@ function handleDoctor(argv: readonly string[], env: CliEnv): Promise<number> {
   return runDoctor(env.doctorProbes ?? createRealDoctorProbes(env.cwd)).then((report) => {
     env.out(formatDoctorReport(report, resolveStyler(env)));
     return report.code;
+  });
+}
+
+function handleRuns(argv: readonly string[], env: CliEnv): Promise<number> {
+  const json = argv[1] === '--json';
+  if (argv.length > 1 && !json) {
+    env.err('Usage: lou runs [--json]');
+    return Promise.resolve(1);
+  }
+  const directory = join(env.cwd, '.lou', 'runs');
+  return runListRuns({
+    store: env.runsStore ?? createNodeRunsStore(directory),
+    json,
+    out: env.out,
   });
 }
 
