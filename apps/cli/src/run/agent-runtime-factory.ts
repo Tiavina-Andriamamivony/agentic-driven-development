@@ -1,5 +1,6 @@
 import { ClaudeCodeRuntime } from '@lou/claude-code-runtime';
 import type { AgentRuntime } from '@lou/agent-runtime';
+import type { CommandRunner } from '@lou/command-runner';
 import { OpenCodeRuntime } from '@lou/opencode-runtime';
 
 export const AGENT_RUNTIME_NAMES = ['opencode', 'claude'] as const;
@@ -13,6 +14,7 @@ export function readAgentRuntimeName(value: string): AgentRuntimeName | null {
   return found ?? null;
 }
 
-export function createAgentRuntime(name: AgentRuntimeName): AgentRuntime {
-  return name === 'claude' ? new ClaudeCodeRuntime() : new OpenCodeRuntime();
+export function createAgentRuntime(name: AgentRuntimeName, runner?: CommandRunner): AgentRuntime {
+  const options = runner === undefined ? {} : { runner };
+  return name === 'claude' ? new ClaudeCodeRuntime(options) : new OpenCodeRuntime(options);
 }

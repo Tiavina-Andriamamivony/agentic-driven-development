@@ -68,6 +68,9 @@ importers:
       '@lou/claude-code-runtime':
         specifier: workspace:*
         version: link:../../packages/runtimes/claude-code
+      '@lou/command-runner':
+        specifier: workspace:*
+        version: link:../../packages/core/command-runner
       '@lou/git':
         specifier: workspace:*
         version: link:../../packages/git
@@ -80,9 +83,15 @@ importers:
       '@lou/orchestrator':
         specifier: workspace:*
         version: link:../../packages/core/orchestrator
+      '@lou/policy-engine':
+        specifier: workspace:*
+        version: link:../../packages/policy/engine
       '@lou/reviewer':
         specifier: workspace:*
         version: link:../../packages/agents/reviewer
+      '@lou/sandbox':
+        specifier: workspace:*
+        version: link:../../packages/core/sandbox
       '@lou/state-machine':
         specifier: workspace:*
         version: link:../../packages/core/state-machine

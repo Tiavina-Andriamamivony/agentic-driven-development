@@ -225,11 +225,13 @@ Agent adoption is a governance decision, not a tool choice:
 
 - **Bounded workflows** — the state machine caps every retry loop; when a run exceeds its
   iteration budget it stops and asks for a human.
-- **Policy engine** — sensitive actions are classified (`ALLOW / DENY / ASK_HUMAN`) by
-  `@lou/policy-engine`. Built and unit-tested, **not yet in the `lou run` path**: a run
-  currently executes every command ungated. See _Honest status_ below.
-- **Command sandbox** — `@lou/sandbox` confines a command to the workspace root and routes
-  it through the policy engine. Built and unit-tested, **not yet in the `lou run` path**.
+- **Policy engine** — every command Lou spawns is classified (`ALLOW / DENY / ASK_HUMAN`) by
+  `@lou/policy-engine` before it runs. Each adapter gets its own role and its own allow list;
+  destructive rules are evaluated first, so a role allowed to `git push` still cannot
+  `--force`. See _Honest status_ below for what this does and does not cover.
+- **Command sandbox** — `@lou/sandbox` refuses any command whose working directory escapes the
+  workspace root, and routes the rest through the policy engine. Wired behind git, GitHub,
+  the test runner and the agent runtime.
 - **Audit trail** — every tool call, approval and command is recorded and replayable.
 - **NASA Power of Ten as the default engineering policy** — Lou ships a configurable
   baseline policy inspired by the JPL/NASA Power of Ten rules, tuned for TypeScript/Node.
@@ -238,14 +240,14 @@ Agent adoption is a governance decision, not a tool choice:
 
 ## Why not just "vibe code"?
 
-|                   | Raw agent CLI                 | IDE chat                  | Lou                                                                       |
-| ----------------- | ----------------------------- | ------------------------- | ------------------------------------------------------------------------- |
-| Process           | Whatever the model improvises | Whatever the chat decides | A fixed, bounded engineering process                                      |
-| Tests             | Claimed, occasionally trusted | Claimed                   | Written first, then run by Lou                                            |
-| Human control     | Interrupt when things break   | Approve inline            | Explicit gates: plan, review, merge                                       |
-| Safety            | Depends on the prompt         | Depends on the prompt     | Bounded state machine + approval gates today; enforced policy in progress |
-| Auditability      | Barely                        | Barely                    | Every decision recorded                                                   |
-| Model portability | Tied to one provider          | Tied to one provider      | Model-agnostic by design                                                  |
+|                   | Raw agent CLI                 | IDE chat                  | Lou                                                          |
+| ----------------- | ----------------------------- | ------------------------- | ------------------------------------------------------------ |
+| Process           | Whatever the model improvises | Whatever the chat decides | A fixed, bounded engineering process                         |
+| Tests             | Claimed, occasionally trusted | Claimed                   | Written first, then run by Lou                               |
+| Human control     | Interrupt when things break   | Approve inline            | Explicit gates: plan, review, merge                          |
+| Safety            | Depends on the prompt         | Depends on the prompt     | Bounded state machine, approval gates, policy-gated commands |
+| Auditability      | Barely                        | Barely                    | Every decision recorded                                      |
+| Model portability | Tied to one provider          | Tied to one provider      | Model-agnostic by design                                     |
 
 ## Honest status
 
@@ -258,19 +260,23 @@ real repository, with a real git adapter, a real audit log on disk and the real 
 (`apps/cli/test/run-wiring.test.ts`). Removing one `git stage()` call makes four of those
 tests fail, so the test has teeth.
 
-**Not yet in the `lou run` path** — three governance components are built, unit-tested and
-**unused at runtime**. They are libraries today, not features:
+**Now on the `lou run` path** — every command Lou itself spawns (git, `gh`, the test command and
+the agent runtime invocation) is confined to the workspace root and classified before it runs.
+Destructive rules are evaluated before the allow lists, so `git push --force` is refused even
+for the role that is allowed to push, and an ungranted command is never executed.
+`apps/cli/test/run-sandbox-wiring.test.ts` asserts the sandbox really is the object behind each
+adapter: removing it from the composition fails that test while the rest of the suite stays
+green, which is why it exists.
 
-| Component            | State            | Consequence                                                          |
-| -------------------- | ---------------- | -------------------------------------------------------------------- |
-| `@lou/sandbox`       | built, not wired | commands are not confined to the workspace root                      |
-| `@lou/policy-engine` | built, not wired | no `ALLOW / DENY / ASK_HUMAN` gate; destructive commands run ungated |
-| `@lou/constitution`  | built, not wired | agents never read the project constitution                           |
+**Still not covered** — what an agent does _inside_ its own CLI session. `opencode run` and
+`claude -p` execute their own tools; Lou gates the invocation, not the shell commands the model
+decides to run inside it. Confining that needs an OS-level sandbox, which is not implemented.
+`@lou/constitution` is also still unwired: agents never read the project constitution.
 
-Until those are wired, the safety story that matters is the one that is real: the bounded
-state machine, the explicit human approval gates, the audit trail, and the fact that Lou runs
-the test command itself instead of trusting the agent's word. Those are enforced by code
-that is on the path.
+The safety story that is real today is therefore: the bounded state machine, the explicit human
+approval gates, the audit trail, the policy gate and workspace confinement on every command Lou
+spawns, and the fact that Lou runs the test command itself instead of trusting the agent's
+word.
 
 **Never validated** — no real agent run has completed. Agent output parsing
 (`CHANGED:`, `SUMMARY:`, `VERDICT:`) has only ever been fed the exact format the parser

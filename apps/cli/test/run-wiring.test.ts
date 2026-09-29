@@ -1,4 +1,5 @@
 import type { AgentRunResult, AgentRuntime, AgentRunInput, AgentStatus } from '@lou/agent-runtime';
+import type { CommandResult, CommandRunner } from '@lou/command-runner';
 import type { GitHubIssue } from '@lou/github';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -6,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildRunEnvironment, runTicket } from '../src/run/run-command.ts';
+import { createSandboxedRunner } from '../src/run/sandboxed-runner.ts';
+import { SandboxedCommandRunner } from '@lou/sandbox';
 import { createGitHubSpy, resultFor } from './fakes.ts';
 
 const SLOW = 30_000;
@@ -85,6 +88,22 @@ function auditEvents(): readonly string[] {
     .split('\n')
     .filter((line) => line.length > 0)
     .map((line) => (JSON.parse(line) as { readonly event: string }).event);
+}
+
+interface RecordingRunner {
+  readonly runner: CommandRunner;
+  readonly calls: string[][];
+}
+
+function recordingRunner(): RecordingRunner {
+  const calls: string[][] = [];
+  const runner: CommandRunner = {
+    run(command: string, args: readonly string[]): Promise<CommandResult> {
+      calls.push([command, ...args]);
+      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', interrupted: false });
+    },
+  };
+  return { runner, calls };
 }
 
 function committedFiles(): string {
@@ -227,6 +246,99 @@ describe('the real run wiring', () => {
     },
     SLOW,
   );
+
+  it('runs no command at all when the policy denies it', () => {
+    const { runner, calls } = recordingRunner();
+    const sandboxed = createSandboxedRunner(dir, 'agent', runner);
+
+    return sandboxed.run('rm', ['-rf', dir], { cwd: dir }).then(
+      () => {
+        throw new Error('the policy must not allow rm -rf');
+      },
+      (error: unknown) => {
+        expect((error as Error).message).toMatch(/denied by policy/);
+        expect(calls).toEqual([]);
+      },
+    );
+  });
+
+  it('refuses a command that would escape the workspace', () => {
+    const { runner, calls } = recordingRunner();
+    const inner = new SandboxedCommandRunner({ root: dir, role: 'git', runner });
+
+    return inner.run('git', ['status'], { cwd: '/etc' }).then(
+      () => {
+        throw new Error('the sandbox must refuse a cwd outside the root');
+      },
+      (error: unknown) => {
+        expect((error as Error).message).toMatch(/outside the sandbox root/);
+        expect(calls).toEqual([]);
+      },
+    );
+  });
+
+  it('lets the orchestrator push, because pushing is a granted capability', () => {
+    const { runner, calls } = recordingRunner();
+    const sandboxed = createSandboxedRunner(dir, 'git', runner);
+
+    return sandboxed.run('git', ['push', '-u', 'origin', 'HEAD'], { cwd: dir }).then(() => {
+      expect(calls).toEqual([['git', 'push', '-u', 'origin', 'HEAD']]);
+    });
+  });
+
+  it('still denies a force push to the role that may push', () => {
+    const { runner, calls } = recordingRunner();
+    const sandboxed = createSandboxedRunner(dir, 'git', runner);
+
+    return sandboxed.run('git', ['push', '--force', 'origin', 'main'], { cwd: dir }).then(
+      () => {
+        throw new Error('a force push must never be allowed');
+      },
+      (error: unknown) => {
+        expect((error as Error).message).toMatch(/denied by policy/);
+        expect(calls).toEqual([]);
+      },
+    );
+  });
+
+  it('asks a human for an agent command outside its capabilities', () => {
+    const { runner, calls } = recordingRunner();
+    const sandboxed = createSandboxedRunner(dir, 'agent', runner);
+
+    return sandboxed.run('curl', ['https://example.com'], { cwd: dir }).then(
+      () => {
+        throw new Error('curl must require a human');
+      },
+      (error: unknown) => {
+        expect((error as Error).message).toMatch(/requires human approval/);
+        expect(calls).toEqual([]);
+      },
+    );
+  });
+
+  it('lets the agent role spawn its own runtime', () => {
+    const { runner, calls } = recordingRunner();
+    const sandboxed = createSandboxedRunner(dir, 'agent', runner);
+
+    return sandboxed.run('opencode', ['run', 'do it'], { cwd: dir }).then(() => {
+      expect(calls).toEqual([['opencode', 'run', 'do it']]);
+    });
+  });
+
+  it('leaves the sandbox default policy fail-closed on push', () => {
+    const { runner, calls } = recordingRunner();
+    const raw = new SandboxedCommandRunner({ root: dir, role: 'git', runner });
+
+    return raw.run('git', ['push', '-u', 'origin', 'HEAD'], { cwd: dir }).then(
+      () => {
+        throw new Error('the built-in default policy must not allow push');
+      },
+      (error: unknown) => {
+        expect((error as Error).message).toMatch(/requires human approval/);
+        expect(calls).toEqual([]);
+      },
+    );
+  });
 
   it(
     'builds the runtime the flags selected',

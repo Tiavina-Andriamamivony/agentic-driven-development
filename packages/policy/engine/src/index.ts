@@ -10,3 +10,4 @@ export { configRule, productionRule, riskRules, secretRule } from './human-rules
 export type { RoleCapability } from './capability-rule.ts';
 export { capabilityRule } from './capability-rule.ts';
 export { defaultRules } from './defaults.ts';
+export { AGENT_ROLE, GITHUB_ROLE, GIT_ROLE, TESTS_ROLE, louRunRules } from './lou-run-rules.ts';
