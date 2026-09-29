@@ -1,8 +1,8 @@
 import type { GitHubAdapter, GitHubIssue } from '@lou/github';
 import type { AgentRunResult } from '@lou/opencode-runtime';
 import { describe, expect, it } from 'vitest';
-import type { RunEnvironment } from '../src/run/run-command';
-import { parseRunArguments, readIssueNumber, runTicket } from '../src/run/run-command';
+import type { RunEnvironment, RunSummary } from '../src/run/run-command';
+import { parseRunArguments, readIssueNumber, runBatch, runTicket } from '../src/run/run-command';
 import {
   createAuditSpy,
   createFakeRuntime,
@@ -367,19 +367,19 @@ describe('runTicket in dry-run', () => {
 
 describe('parseRunArguments', () => {
   it('parses an issue number', () => {
-    expect(parseRunArguments(['run', '12'])).toEqual({ issueNumber: 12, dryRun: false });
+    expect(parseRunArguments(['run', '12'])).toEqual({ issueNumbers: [12], dryRun: false });
   });
 
   it('parses a --dry-run flag', () => {
     expect(parseRunArguments(['run', '12', '--dry-run'])).toEqual({
-      issueNumber: 12,
+      issueNumbers: [12],
       dryRun: true,
     });
   });
 
   it('parses a --model option', () => {
     expect(parseRunArguments(['run', '12', '--model', 'gpt-5'])).toEqual({
-      issueNumber: 12,
+      issueNumbers: [12],
       dryRun: false,
       model: 'gpt-5',
     });
@@ -387,7 +387,7 @@ describe('parseRunArguments', () => {
 
   it('parses --dry-run combined with --model', () => {
     expect(parseRunArguments(['run', '12', '--dry-run', '--model', 'gpt-5'])).toEqual({
-      issueNumber: 12,
+      issueNumbers: [12],
       dryRun: true,
       model: 'gpt-5',
     });
@@ -397,7 +397,7 @@ describe('parseRunArguments', () => {
     expect(
       parseRunArguments(['run', '12', '--model-by-agent', 'planner=opus,reviewer=flash']),
     ).toEqual({
-      issueNumber: 12,
+      issueNumbers: [12],
       dryRun: false,
       modelsByAgent: { planner: 'opus', reviewer: 'flash' },
     });
@@ -434,7 +434,7 @@ describe('parseRunArguments', () => {
         'context7=https://mcp.context7.com/mcp',
       ]),
     ).toEqual({
-      issueNumber: 12,
+      issueNumbers: [12],
       dryRun: false,
       mcp: {
         sqlite: 'uvx',
@@ -461,7 +461,7 @@ describe('parseRunArguments', () => {
   it('parses --max-cost-usd and --max-time-min', () => {
     expect(
       parseRunArguments(['run', '12', '--max-cost-usd', '1.5', '--max-time-min', '30']),
-    ).toEqual({ issueNumber: 12, dryRun: false, maxCostUsd: 1.5, maxMinutes: 30 });
+    ).toEqual({ issueNumbers: [12], dryRun: false, maxCostUsd: 1.5, maxMinutes: 30 });
   });
 
   it('rejects non-numeric or non-positive budget limits', () => {
@@ -480,6 +480,132 @@ describe('parseRunArguments', () => {
       expect(parseRunArguments(args)).toBeNull();
     },
   );
+});
+
+describe('runBatch', () => {
+  it('runs the tickets sequentially and aggregates a full success', async () => {
+    const order: number[] = [];
+    const code = await runBatch(
+      [12, 13],
+      () => {},
+      (n) => {
+        order.push(n);
+        return Promise.resolve(0);
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(order).toEqual([12, 13]);
+  });
+
+  it('returns 1 and reports the count when some tickets fail', async () => {
+    const out: string[] = [];
+    const code = await runBatch(
+      [1, 2, 3],
+      (line) => out.push(line),
+      (n) => Promise.resolve(n === 2 ? 1 : 0),
+    );
+
+    expect(code).toBe(1);
+    expect(out).toEqual(['Batch: 2/3 tickets reached a pull request.']);
+  });
+
+  it('keeps single-ticket batches quiet', async () => {
+    const out: string[] = [];
+    const code = await runBatch(
+      [9],
+      (line) => out.push(line),
+      () => Promise.resolve(0),
+    );
+
+    expect(code).toBe(0);
+    expect(out).toEqual([]);
+  });
+});
+
+describe('runTicket summaries', () => {
+  it('writes a run summary when a summarizer is wired', async () => {
+    const { env } = buildEnv(happyReplies());
+    const summaries: RunSummary[] = [];
+    const summarize: (summary: RunSummary) => Promise<void> = (summary) => {
+      summaries.push(summary);
+      return Promise.resolve();
+    };
+
+    const code = await runTicket({ ...env, summarize });
+
+    expect(code).toBe(0);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.issueNumber).toBe(1);
+    expect(summaries[0]?.status).toBe('pr-created');
+    expect(summaries[0]?.pullRequestUrl).toBe('https://hub.example/pr/42');
+    expect(summaries[0]?.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(summaries[0]?.finishedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('carries the failure reason in the summary', async () => {
+    const blockedReplies: readonly AgentRunResult[] = [
+      resultFor(PLANNER_STDOUT),
+      resultFor('TEST_PLAN: valid token'),
+      resultFor('CHANGED: test/reset.spec.ts\nSUMMARY: tests written'),
+      resultFor('CHANGED: src/reset.ts\nSUMMARY: implemented'),
+      resultFor('VERDICT: BLOCKED\nREASON: security risk'),
+    ];
+    const { env } = buildEnv(blockedReplies);
+    const summaries: RunSummary[] = [];
+    const summarize: (summary: RunSummary) => Promise<void> = (summary) => {
+      summaries.push(summary);
+      return Promise.resolve();
+    };
+
+    const code = await runTicket({ ...env, summarize });
+
+    expect(code).toBe(1);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.status).toBe('blocked');
+    expect(summaries[0]?.reason).toBe('security risk');
+  });
+
+  it('writes no summary for a dry run', async () => {
+    const { env } = buildEnv(happyReplies());
+    const summaries: RunSummary[] = [];
+    const summarize: (summary: RunSummary) => Promise<void> = (summary) => {
+      summaries.push(summary);
+      return Promise.resolve();
+    };
+
+    const code = await runTicket({ ...env, dryRun: true, summarize });
+
+    expect(code).toBe(0);
+    expect(summaries).toHaveLength(0);
+  });
+});
+
+describe('parseRunArguments multi-issue', () => {
+  it('parses several issue numbers', () => {
+    expect(parseRunArguments(['run', '12', '13'])).toEqual({
+      issueNumbers: [12, 13],
+      dryRun: false,
+    });
+  });
+
+  it('parses flags after the issue numbers', () => {
+    expect(parseRunArguments(['run', '7', '8', '--dry-run', '--model', 'gpt-5'])).toEqual({
+      issueNumbers: [7, 8],
+      dryRun: true,
+      model: 'gpt-5',
+    });
+  });
+
+  it('rejects a mix of issue numbers and non-numeric tokens', () => {
+    expect(parseRunArguments(['run', '12', 'extra'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '13', '--dry-run', 'extra'])).toBeNull();
+  });
+
+  it('rejects a run without any issue number', () => {
+    expect(parseRunArguments(['run'])).toBeNull();
+    expect(parseRunArguments(['run', '--dry-run'])).toBeNull();
+  });
 });
 
 describe('readIssueNumber', () => {

@@ -21,7 +21,8 @@ import { ReviewerAgent } from '@lou/reviewer';
 import { Workflow } from '@lou/state-machine';
 import { NodeTestRunner } from '@lou/test-runner';
 import type { TestRunner } from '@lou/test-runner';
-import { join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { createOpenCodeSteps } from './opencode-steps.ts';
 import { createTerminalKeeper } from './terminal-keeper.ts';
@@ -50,10 +51,20 @@ export interface RunEnvironment {
   readonly mcp?: Readonly<Record<string, string>>;
   readonly maxCostUsd?: number;
   readonly maxMinutes?: number;
+  readonly summarize?: (summary: RunSummary) => Promise<void>;
+}
+
+export interface RunSummary {
+  readonly issueNumber: number;
+  readonly status: OrchestratorStatus;
+  readonly reason?: string;
+  readonly pullRequestUrl?: string;
+  readonly startedAt: string;
+  readonly finishedAt: string;
 }
 
 interface ProductionRunOptions {
-  readonly issueNumber: number;
+  readonly issueNumbers: readonly number[];
   readonly cwd: string;
   readonly out: (line: string) => void;
   readonly dryRun: boolean;
@@ -65,7 +76,7 @@ interface ProductionRunOptions {
 }
 
 export interface RunArguments {
-  readonly issueNumber: number;
+  readonly issueNumbers: readonly number[];
   readonly dryRun: boolean;
   readonly maxCostUsd?: number;
   readonly maxMinutes?: number;
@@ -92,23 +103,52 @@ export function readIssueNumber(value: string | undefined): number | null {
   return parsed;
 }
 export function parseRunArguments(argv: readonly string[]): RunArguments | null {
-  const issueNumber = readIssueNumber(argv[1]);
-  if (issueNumber === null) {
+  const issueNumbers = parseIssueNumbers(argv.slice(1));
+  if (issueNumbers === null || issueNumbers.length === 0) {
     return null;
   }
-  const flags = parseFlags(argv.slice(2));
+  const flags = parseFlags(argv.slice(1 + issueNumbers.length));
   if (flags === null) {
     return null;
   }
   return {
-    issueNumber,
+    issueNumbers,
     dryRun: flags.dryRun,
+    ...flagSettings(flags),
+  };
+}
+
+interface FlagSettings {
+  readonly model?: string;
+  readonly modelsByAgent?: Readonly<Record<string, string>>;
+  readonly mcp?: Readonly<Record<string, string>>;
+  readonly maxCostUsd?: number;
+  readonly maxMinutes?: number;
+}
+
+function flagSettings(flags: FlagState): FlagSettings {
+  return {
     ...(flags.model !== undefined ? { model: flags.model } : {}),
     ...(flags.modelsByAgent !== undefined ? { modelsByAgent: flags.modelsByAgent } : {}),
     ...(Object.keys(flags.mcp).length > 0 ? { mcp: flags.mcp } : {}),
     ...(flags.maxCostUsd !== undefined ? { maxCostUsd: flags.maxCostUsd } : {}),
     ...(flags.maxMinutes !== undefined ? { maxMinutes: flags.maxMinutes } : {}),
   };
+}
+
+function parseIssueNumbers(tokens: readonly string[]): number[] | null {
+  const numbers: number[] = [];
+  for (const token of tokens) {
+    if (token.startsWith('-')) {
+      break;
+    }
+    const issueNumber = readIssueNumber(token);
+    if (issueNumber === null) {
+      return null;
+    }
+    numbers.push(issueNumber);
+  }
+  return numbers;
 }
 
 interface FlagState {
@@ -275,10 +315,38 @@ function agentSettings(settings: {
   };
 }
 
-export function runProduction(options: ProductionRunOptions): Promise<number> {
-  const auditFile = join(options.cwd, '.lou', 'runs', `run-${options.issueNumber}.jsonl`);
+export async function runProduction(options: ProductionRunOptions): Promise<number> {
+  const many = options.issueNumbers.length > 1;
+  return runBatch(options.issueNumbers, options.out, (issueNumber) =>
+    runOne(issueNumber, options, many),
+  );
+}
+
+export async function runBatch(
+  issueNumbers: readonly number[],
+  out: (line: string) => void,
+  runOne: (issueNumber: number) => Promise<number>,
+): Promise<number> {
+  const successes: number[] = [];
+  for (const issueNumber of issueNumbers) {
+    if ((await runOne(issueNumber)) === 0) {
+      successes.push(issueNumber);
+    }
+  }
+  if (issueNumbers.length > 1) {
+    out(`Batch: ${successes.length}/${issueNumbers.length} tickets reached a pull request.`);
+  }
+  return successes.length === issueNumbers.length ? 0 : 1;
+}
+
+async function runOne(
+  issueNumber: number,
+  options: ProductionRunOptions,
+  many: boolean,
+): Promise<number> {
+  const auditFile = join(options.cwd, '.lou', 'runs', `run-${issueNumber}.jsonl`);
   return runTicket({
-    issueNumber: options.issueNumber,
+    issueNumber,
     workspace: options.cwd,
     github: new NodeGitHubAdapter({ root: options.cwd }),
     git: new NodeGitAdapter({ root: options.cwd }),
@@ -287,12 +355,24 @@ export function runProduction(options: ProductionRunOptions): Promise<number> {
     runtime: new OpenCodeRuntime(),
     conventions: 'conventional commits',
     ask: terminalQuestion,
-    out: options.out,
+    out: (line) => {
+      options.out(many ? `[#${issueNumber}] ${line}` : line);
+    },
     dryRun: options.dryRun,
+    summarize: writeRunSummaryFile(options.cwd),
     ...agentSettings(options),
     ...(options.maxCostUsd !== undefined ? { maxCostUsd: options.maxCostUsd } : {}),
     ...(options.maxMinutes !== undefined ? { maxMinutes: options.maxMinutes } : {}),
   });
+}
+
+function writeRunSummaryFile(workspace: string): (summary: RunSummary) => Promise<void> {
+  return (summary) => {
+    const file = join(workspace, '.lou', 'runs', `run-${summary.issueNumber}.summary.json`);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `${JSON.stringify(summary, null, 2)}\n`);
+    return Promise.resolve();
+  };
 }
 
 export async function runTicket(env: RunEnvironment): Promise<number> {
@@ -313,6 +393,7 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
   if (env.dryRun) {
     return runDryRun(issue, env, steps);
   }
+  const startedAt = new Date().toISOString();
   const orchestrator = new Orchestrator({
     runId: `run-${issue.number}`,
     issue,
@@ -331,6 +412,16 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     conventions: env.conventions,
   });
   const outcome = await orchestrator.run();
+  if (env.summarize !== undefined) {
+    await env.summarize({
+      issueNumber: issue.number,
+      status: outcome.status,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}),
+      ...(outcome.pullRequest !== undefined ? { pullRequestUrl: outcome.pullRequest.url } : {}),
+    });
+  }
   return report(outcome, env.out);
 }
 

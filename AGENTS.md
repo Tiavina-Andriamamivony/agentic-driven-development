@@ -61,6 +61,8 @@ use the **Lou** brand.
   branch. Main is protected: 1 approving review + the `Quality Gates` and
   `Conventional Commits` checks are required (admin merges may bypass via
   `gh pr merge --admin`).
+- PR bodies follow `.github/pull_request_template.md`: state what the PR does, the ticket
+  in cause (`Closes #N`), the files changed (one line each) and the idea behind the design.
 
 ## Developer commands (run from repo root)
 
