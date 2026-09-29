@@ -21,15 +21,17 @@ describe('AgentRunFailedError', () => {
 
   it('carries the spend so a failed run can still be charged', () => {
     const error = new AgentRunFailedError('RUN-001', 'model overloaded', {
+      promptTokens: 900,
+      completionTokens: 120,
       costUsd: 0.3,
     });
 
-    expect(error.costUsd).toBe(0.3);
+    expect(error.usage).toEqual({ promptTokens: 900, completionTokens: 120, costUsd: 0.3 });
   });
 
   it('reports no cost when the runtime could not tell', () => {
     const error = new AgentRunFailedError('RUN-001', 'truncated output');
 
-    expect(error.costUsd).toBeNull();
+    expect(error.usage).toBeNull();
   });
 });

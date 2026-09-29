@@ -171,11 +171,11 @@ export class ClaudeCodeRuntime implements AgentRuntime {
     if (payload === null || payload['is_error'] !== true) {
       return;
     }
-    const cost = readNumber(this.toResult(payload)?.total_cost_usd);
+    const result = this.toResult(payload);
     throw new AgentRunFailedError(
       runId,
       failureReason(payload),
-      cost === null ? undefined : { costUsd: cost },
+      result === null ? undefined : this.toTokenUsage(result),
     );
   }
 

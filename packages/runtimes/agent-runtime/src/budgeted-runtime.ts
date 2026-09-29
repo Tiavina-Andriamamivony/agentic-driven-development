@@ -58,12 +58,7 @@ export class BudgetedAgentRuntime implements AgentRuntime {
     if (!(error instanceof AgentRunFailedError)) {
       return;
     }
-    this.charge(
-      error.costUsd === null
-        ? undefined
-        : { promptTokens: 0, completionTokens: 0, costUsd: error.costUsd },
-      startedAt,
-    );
+    this.charge(error.usage ?? undefined, startedAt);
   }
 
   private charge(usage: TokenUsage | undefined, startedAt: number): void {

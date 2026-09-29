@@ -211,7 +211,9 @@ describe('ClaudeCodeRuntime', () => {
     const pending = runtime.run(INPUT);
     runner.complete(result(failed));
 
-    await expect(pending).rejects.toMatchObject({ costUsd: 0.42 });
+    await expect(pending).rejects.toMatchObject({
+      usage: { promptTokens: 1200, completionTokens: 300, costUsd: 0.42 },
+    });
   });
 
   it('reports no cost on the error when the payload omits it', async () => {
@@ -222,7 +224,7 @@ describe('ClaudeCodeRuntime', () => {
     const pending = runtime.run(INPUT);
     runner.complete(result(failed));
 
-    await expect(pending).rejects.toMatchObject({ costUsd: null });
+    await expect(pending).rejects.toMatchObject({ usage: null });
   });
 
   it('accepts a successful payload with is_error false', async () => {
