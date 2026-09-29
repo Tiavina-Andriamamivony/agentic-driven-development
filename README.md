@@ -14,38 +14,81 @@
   <a href="https://github.com/Tiavina-Andriamamivony/lou-agents-orchestrator/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Tiavina-Andriamamivony/lou-agents-orchestrator/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/Tiavina-Andriamamivony/lou-agents-orchestrator" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/Node.js-%E2%89%A522-339933?logo=nodedotjs&logoColor=white" alt="Node.js >= 22">
-  <img src="https://img.shields.io/badge/pnpm-10-F69220?logo=pnpm&logoColor=white" alt="pnpm">
   <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white" alt="TypeScript strict">
-  <img src="https://img.shields.io/badge/NASA%20Power%20of%20Ten-compliant-7C4DFF" alt="NASA Power of Ten">
 </p>
 
 <p align="center">
-  <a href="#the-problem-lou-solves">The problem</a> ·
+  <a href="#the-scene">The scene</a> ·
+  <a href="#see-it-work">See it work</a> ·
+  <a href="#try-it-in-three-commands">Try it</a> ·
   <a href="#how-it-works">How it works</a> ·
-  <a href="#who-its-for">Who it's for</a> ·
+  <a href="#whats-shipped">What's shipped</a> ·
   <a href="#principles">Principles</a> ·
   <a href="#safety-model">Safety</a> ·
-  <a href="#roadmap">Roadmap</a> ·
-  <a href="#getting-started">Getting started</a>
+  <a href="#roadmap">Roadmap</a>
 </p>
 
 ---
 
-## The problem Lou solves
+## The scene
 
-AI agents write code faster than ever — and with nobody holding them to an engineering
-bar. One agent _says_ the tests pass; nobody checked. Another rewrites half the codebase
-because a ticket said "improve performance". A third merges without a review.
+"My agent said the tests passed. They didn't."
+
+That is the problem Lou exists for. AI agents write code faster than ever — and with
+nobody holding them to an engineering bar:
+
+- An agent _says_ the tests pass. Nobody checks.
+- Another rewrites half the codebase because a ticket said "improve performance".
+- A third merges without a review.
 
 The bottleneck of AI development is no longer **writing code**. It is **trust and
-control**.
+control**. Lou is the layer that sits _above_ an agent runtime (OpenCode) and turns
+autonomous coding into a governed engineering process — the way git turned collaboration
+into a governed science. Agents keep their velocity; humans keep the final word.
 
-Lou is not an IDE, not a chat wrapper, not a CRUD generator. It is the layer that sits
-_above_ an agent runtime and turns autonomous coding into a governed engineering process —
-the way git turned collaboration into a governed science. Agents keep their velocity;
-humans keep the final word.
+Lou is not an IDE, not a chat wrapper, not a CRUD generator.
+
+## See it work
+
+A ticket enters the repo. Lou plans it, a human approves the plan, Lou writes the tests
+_first_, the agent implements, Lou runs the checks itself — an agent _claiming_ "tests
+pass" is not proof — then a reviewer and a human gate, and a pull request appears.
+
+`demos/lou-demo.cast` will hold a 30-second asciinema recording of exactly that. Record it
+on your own machine (it drives a real ticket, so it needs `opencode` and `gh` on the
+machine recording it) with the harness in `demos/`:
+
+```bash
+LOU_DEMO_ISSUE=<your-issue> bash demos/record-demo.sh
+```
+
+## Try it in three commands
+
+```bash
+lou init   # read-only onboarding: stack, docs, CI, git conventions
+lou run 12 # drive issue #12 all the way to an approved pull request
+lou runs   # what finished, what is still running
+```
+
+Install in one line:
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/Tiavina-Andriamamivony/lou-agents-orchestrator/main/apps/cli/install/install.sh | bash
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Tiavina-Andriamamivony/lou-agents-orchestrator/main/apps/cli/install/install.ps1 | iex
+```
+
+The script is short and readable: it downloads the Lou sources from this repository
+(branch `main` or a `--version <tag>` of your choice) into `~/.lou`, runs
+`pnpm install --prod` with a frozen lockfile and no scripts, and wires the `lou` launcher
+onto your PATH — no compiler, no global package pollution. Upgrade later with
+`lou upgrade` (or `lou upgrade v0.2.0`). Requirements: Node.js >= 22.7, plus OpenCode
+installed for `lou run` (`lou doctor` tells you if something is missing).
 
 ## How it works
+
+Every ticket passes through the same bounded workflow:
 
 ```text
 Ticket
@@ -79,7 +122,40 @@ Pull request
 ```
 
 Bounded and audited end to end: every retry is capped, every escalation reaches a human,
-every decision is recorded.
+every decision is recorded in an append-only audit trail that survives the run.
+Multiple tickets (`lou run 12 13`) run concurrently (`--max-concurrency`) — and each run
+gets its own isolated git worktree, so batch runs cannot contaminate one another.
+
+## What's shipped
+
+`lou run` drives a GitHub issue to a pull request with human approval gates at the plan
+and review steps, and `lou init` produces a zero-write onboarding report. Under the hood:
+
+- `@lou/state-machine` — deterministic, bounded workflow engine (phases, commands,
+  transition rules, iteration budgets) with explicit human gates.
+- `@lou/orchestrator` — the loop: planner, test-writer, developer, reviewer, test runner,
+  git and GitHub, wired to the state machine and recorded in the audit trail.
+- `@lou/opencode-runtime` — the `AgentRuntime` port plus an `OpenCodeRuntime` adapter
+  driving the `opencode run` CLI (spawn, timeout, abort, status).
+- `@lou/git` — branch, commit, push, clean check, plus detached worktrees for isolated
+  batch runs.
+- `@lou/github` — the `gh` CLI adapter: fetch issues, open pull requests.
+- `@lou/reviewer` — structured pre-review returning `APPROVED / CHANGES_REQUESTED /
+BLOCKED`, mapped onto the workflow commands.
+- `@lou/test-runner` — runs the project test command itself and reports a pass/fail
+  verdict: verification over trust.
+- `@lou/policy-engine` — `ALLOW / DENY / ASK_HUMAN` rules: destructive/risky patterns,
+  production/secret/config guards, role capabilities; `DENY` and `ASK_HUMAN` never
+  execute.
+- `@lou/sandbox` — every command confined to the workspace root and gated by the policy
+  engine.
+- `@lou/audit` — append-only JSON-lines audit log, store-stamped timestamps, plus a
+  per-run summary.
+- `@lou/constitution` — the project's persistent rules (default 12-rule template,
+  `.add/constitution.md`), parsed and validated.
+
+Everything ships test-first, zero-warning lint, strict typecheck, dead-code analysis, and
+a green CI on Node 22 and 24. `main` is protected.
 
 ## Who it's for
 
@@ -99,7 +175,7 @@ An agent becomes a disciplined team member, not a cowboy:
 
 ### Teams building without dedicated coders
 
-For product teams and founders who describe intent instead of writing code:
+Product teams and founders describe intent instead of writing code:
 
 - Describe the goal in plain language. Lou plans the work, writes the tests, implements,
   verifies and opens a pull request.
@@ -118,8 +194,8 @@ Agent adoption is a governance decision, not a tool choice:
   shipped, you can show exactly how, when and who approved it.
 - **Fail closed** — when a critical operation cannot be assessed, the run stops. It never
   executes by default.
-- **Model agnostic** — different models orchestrated for different tasks. No single
-  vendor lock-in.
+- **Model agnostic** — different models orchestrated for different tasks (`--model`,
+  `--model-by-agent`). No single vendor lock-in.
 - **Policy at the platform level** — rules live in enforced policy and lint/CI gates, not
   in prompts anyone can forget.
 - **Reproducible** — a run is a documented, bounded process, not a black box.
@@ -143,45 +219,24 @@ Agent adoption is a governance decision, not a tool choice:
   iteration budget it stops and asks for a human.
 - **Policy engine** — every sensitive action is classified (`ALLOW / DENY / ASK_HUMAN`)
   before execution; destructive commands require approval.
-- **Capability-based permissions** — each agent role gets an explicit capability set.
+- **Command sandbox** — every command is confined to the workspace root; hostile actions
+  never execute implicitly.
 - **Audit trail** — every tool call, approval and command is recorded and replayable.
+- **NASA Power of Ten as the default engineering policy** — Lou ships a configurable
+  baseline policy inspired by the JPL/NASA Power of Ten rules, tuned for TypeScript/Node.
+  The same rules are enforced — non-negotiably — on Lou's own codebase through the linter
+  and CI, so the product dogfoods the policy it governs with.
 
-### NASA Power of Ten as the default engineering policy
+## Why not just "vibe code"?
 
-Lou ships a configurable baseline policy inspired by the JPL/NASA Power of Ten rules,
-tuned for TypeScript/Node: bounded control flow, small functions, minimal scope, explicit
-error handling, strict compilation and zero-warning static analysis. The same rules are
-enforced — non-negotiably — on Lou's own codebase through the linter and CI, so the
-product dogfoods the policy it governs with.
-
-## Current state
-
-**Shipped:**
-
-- `@lou/state-machine` — deterministic, bounded workflow engine (phases, commands,
-  transition rules, iteration budgets) with explicit human approval gates for the plan
-  and the review.
-- `@lou/opencode-runtime` — the `AgentRuntime` port plus an `OpenCodeRuntime` adapter
-  driving the `opencode run` CLI (spawn, timeout, abort, status).
-- `@lou/command-runner` — shared `CommandRunner` port and Node spawn implementation
-  reused by every adapter that shells out.
-- `@lou/git` — the git adapter: create branch, commit, push, current branch, clean check.
-- `@lou/github` — GitHub adapter on the `gh` CLI: fetch issues, open pull requests.
-- `@lou/reviewer` — review agent: structured pre-review (correctness, architecture, tests,
-  security, complexity, regressions, policy) returning `APPROVED / CHANGES_REQUESTED /
-BLOCKED`, mapped onto the workflow commands.
-- `@lou/test-runner` — runs the project test command itself and reports a pass/fail
-  verdict (verification over trust, no agent assertion taken at face value).
-- `@lou/policy-engine` — `ALLOW / DENY / ASK_HUMAN` policy engine: destructive/risky
-  patterns, production/secret/config guards, role capabilities.
-- `@lou/constitution` — persistent project rules, default 12-rule template, store at
-  `.add/constitution.md`.
-
-**Next (following the spec's priority order):** the test workflow and human approval
-gates, the orchestrator loop, the CLI, and GitHub integration.
-
-Everything ships test-first, zero-warning lint, strict typecheck, dead-code analysis, and
-a green CI on Node 22 and 24. `main` is protected.
+|                   | Raw agent CLI                 | IDE chat                  | Lou                                      |
+| ----------------- | ----------------------------- | ------------------------- | ---------------------------------------- |
+| Process           | Whatever the model improvises | Whatever the chat decides | A fixed, bounded engineering process     |
+| Tests             | Claimed, occasionally trusted | Claimed                   | Written first, then run by Lou           |
+| Human control     | Interrupt when things break   | Approve inline            | Explicit gates: plan, review, merge      |
+| Safety            | Depends on the prompt         | Depends on the prompt     | Enforced policy + capability permissions |
+| Auditability      | Barely                        | Barely                    | Every decision recorded                  |
+| Model portability | Tied to one provider          | Tied to one provider      | Model-agnostic by design                 |
 
 ## Roadmap
 
@@ -196,24 +251,13 @@ a green CI on Node 22 and 24. `main` is protected.
 MVP scope is fixed in the [product specification](docs/cahier-des-charges.md) (§47, in
 French) — the design contract this repository implements.
 
-## Why not just "vibe code"?
-
-|                   | Raw agent CLI                 | IDE chat                  | Lou                                      |
-| ----------------- | ----------------------------- | ------------------------- | ---------------------------------------- |
-| Process           | Whatever the model improvises | Whatever the chat decides | A fixed, bounded engineering process     |
-| Tests             | Claimed, occasionally trusted | Claimed                   | Written first, then run by Lou           |
-| Human control     | Interrupt when things break   | Approve inline            | Explicit gates: plan, review, merge      |
-| Safety            | Depends on the prompt         | Depends on the prompt     | Enforced policy + capability permissions |
-| Auditability      | Barely                        | Barely                    | Every decision recorded                  |
-| Model portability | Tied to one provider          | Tied to one provider      | Model-agnostic by design                 |
-
 ## Repository layout
 
 ```text
 lou/
 ├── apps/
-│   └── cli/                      # the `lou` CLI (`lou init` onboarding, `lou run <issue>`)
-│       └── install/              # one-line installers: install.sh (Linux/macOS), install.ps1 (Windows)
+│   └── cli/                      # the `lou` CLI: doctor, init, run, runs, upgrade
+│       └── install/              # one-line installers + smoke test
 ├── packages/
 │   ├── core/
 │   │   ├── state-machine/        # workflow engine + human approval gates
@@ -223,72 +267,20 @@ lou/
 │   │   ├── sandbox/              # workspace confinement + policy gate per command
 │   │   ├── audit/                # append-only audit trail + per-run summary
 │   │   └── orchestrator/         # the loop: state machine driven end to end → PR
-│   ├── git/
-│   │   └── src/                  # git adapter: branch, commit, push, clean check
+│   ├── git/                      # git adapter: branch, commit, push, worktrees
 │   ├── agents/
 │   │   └── reviewer/             # structured pre-review, verdict → workflow
 │   ├── integrations/
 │   │   └── github/               # gh CLI adapter: issues, pull requests
 │   ├── policy/
 │   │   └── engine/               # rules, risk classification, permissions
-│   ├── runtimes/
-│   │   └── opencode/             # AgentRuntime port + OpenCode adapter
-│   └── storage/                  # runs, artefacts, audit trail (roadmap)
-├── public/
-│   └── logo.png                  # Lou brandmark
+│   └── runtimes/
+│       └── opencode/             # AgentRuntime port + OpenCode adapter
+├── demos/                        # demo recording harness (asciinema)
 ├── docs/
 │   └── cahier-des-charges.md     # product specification (FR)
 └── .github/
 ```
-
-## Install
-
-One line, no toolchain to configure — the installer fetches the Lou sources, links the
-workspace packages and wires the `lou` launcher onto your PATH:
-
-```bash
-# Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/Tiavina-Andriamamivony/lou-agents-orchestrator/main/apps/cli/install/install.sh | bash
-
-# Windows (PowerShell)
-irm https://raw.githubusercontent.com/Tiavina-Andriamamivony/lou-agents-orchestrator/main/apps/cli/install/install.ps1 | iex
-```
-
-Requirements: Node.js >= 22.7 (Node executes the TypeScript sources directly).
-Options: `--prefix <dir>`, `--version <tag|main>`, `--node <bin>`, `--quiet` (PowerShell:
-`-Prefix`, `-Version`, `-Node`, `-Quiet`). To upgrade an existing install, run `lou upgrade`
-(or a specific version with `lou upgrade v0.2.0`); it preserves your prefix and node binary.
-`lou run` and `lou init` notify you when a new Lou version is available. Uninstall by
-removing the install directory and its PATH entry.
-
-To verify the whole install flow end-to-end against the current working tree (offline
-tarball, isolated HOME/PREFIX, version check, upgrade idempotence and `lou init`):
-
-```bash
-bash apps/cli/install/smoke.sh
-```
-
-## Getting started
-
-Requirements: Node.js >= 22, pnpm >= 10.
-
-```bash
-pnpm install
-pnpm check      # lint → typecheck → knip → tests
-pnpm test       # unit tests (Vitest)
-```
-
-The `packageManager` field pins pnpm; enable Corepack with `corepack enable` if your
-environment requires it. The spec priority order and the contribution workflow live in
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-## Development workflow
-
-- Conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `ci:`, `chore:`).
-- TDD: write the failing test, watch it fail, then make it pass.
-- One file, one role. One class per file. One responsibility per function.
-- TypeScript strict with zero warnings — the CI pipeline is the gate.
-- One feature per branch, PR per feature, merge once green.
 
 ## Non-goals
 
@@ -296,6 +288,16 @@ environment requires it. The spec priority order and the contribution workflow l
 - Not an LLM wrapper — no single locked-in model.
 - Not a CRUD generator.
 - Not a system that deploys to production automatically.
+
+## Contributing
+
+- Conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `ci:`, `chore:`),
+  enforced by commitlint and CI.
+- TDD: write the failing test, watch it fail, then make it pass.
+- One file, one role. One class per file. One responsibility per function.
+- TypeScript strict with zero warnings — the CI pipeline is the gate.
+- One feature per branch, PR per feature, merge once green.
+- The repo is developed by its own orchestrator; see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Security
 
