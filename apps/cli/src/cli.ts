@@ -1,4 +1,5 @@
 import { readFileSync, realpathSync } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { createNodeProjectReader } from './init/project-reader.ts';
 import type { ProjectReader } from './init/project-reader.ts';
@@ -7,6 +8,12 @@ import { parseInitJsonFlag, runInit } from './init/run-init.ts';
 import { createRealDoctorProbes } from './doctor/real-probes.ts';
 import { formatDoctorReport, runDoctor } from './doctor/doctor-command.ts';
 import type { DoctorProbes } from './doctor/doctor-command.ts';
+import { createLocalOpenCodeInstaller } from './ux/opencode-installer.ts';
+import type { OpenCodeInstaller } from './ux/opencode-installer.ts';
+import { ensureOpenCode } from './ux/preflight.ts';
+import type { EnsureOpenCodeOptions } from './ux/preflight.ts';
+import { createStyler } from './ux/style.ts';
+import type { Styler } from './ux/style.ts';
 
 const USAGE = `Usage: lou <command> [args]
 
@@ -24,6 +31,10 @@ export interface CliEnv {
   readonly out: (line: string) => void;
   readonly err: (line: string) => void;
   readonly doctorProbes?: DoctorProbes;
+  readonly interactive?: boolean;
+  readonly style?: Styler;
+  readonly ask?: (question: string) => Promise<string>;
+  readonly openCodeInstaller?: OpenCodeInstaller;
 }
 
 type CommandHandler = (argv: readonly string[], env: CliEnv) => Promise<number>;
@@ -40,7 +51,7 @@ function handleDoctor(argv: readonly string[], env: CliEnv): Promise<number> {
     return Promise.resolve(1);
   }
   return runDoctor(env.doctorProbes ?? createRealDoctorProbes(env.cwd)).then((report) => {
-    env.out(formatDoctorReport(report));
+    env.out(formatDoctorReport(report, resolveStyler(env)));
     return report.code;
   });
 }
@@ -51,19 +62,56 @@ function handleInit(argv: readonly string[], env: CliEnv): Promise<number> {
     env.err('Usage: lou init [--json]');
     return Promise.resolve(1);
   }
-  return runInit({ reader: env.reader, root: env.cwd, json }).then((report) => {
-    env.out(report);
-    return 0;
-  });
+  const style = resolveStyler(env);
+  return Promise.resolve()
+    .then(() => runInit({ reader: env.reader, root: env.cwd, json }))
+    .then((report) => {
+      if (!json) {
+        env.out(style.bold('◆ Lou · agent-driven development'));
+        env.out('');
+      }
+      env.out(report);
+      if (json) {
+        return 0;
+      }
+      return offerOpenCodeInstall(env).then(() => 0);
+    });
 }
 
-function handleRun(argv: readonly string[], env: CliEnv): Promise<number> {
+async function offerOpenCodeInstall(env: CliEnv): Promise<void> {
+  const style = resolveStyler(env);
+  const status = await ensureOpenCode(preflightOptions(env));
+  if (status === 'present') {
+    env.out(`${style.dim('opencode')} ${style.check(true)}`);
+  }
+}
+
+async function requireOpenCode(env: CliEnv): Promise<boolean> {
+  const status = await ensureOpenCode(preflightOptions(env));
+  return status === 'present' || status === 'installed';
+}
+
+function preflightOptions(env: CliEnv): EnsureOpenCodeOptions {
+  return {
+    installer: env.openCodeInstaller ?? createLocalOpenCodeInstaller(),
+    ask: env.ask ?? terminalQuestion,
+    interactive: resolveInteractive(env),
+    out: env.out,
+    style: resolveStyler(env),
+    platform: process.platform,
+  };
+}
+
+async function handleRun(argv: readonly string[], env: CliEnv): Promise<number> {
   const parsed = parseRunArguments(argv);
   if (parsed === null) {
     env.err(
       'Usage: lou run <issue-number> [--dry-run] [--model <name>] [--model-by-agent planner=...] [--mcp name=command] [--max-cost-usd <usd>] [--max-time-min <minutes>]',
     );
-    return Promise.resolve(1);
+    return 1;
+  }
+  if (!(await requireOpenCode(env))) {
+    return 1;
   }
   return runProduction({
     issueNumber: parsed.issueNumber,
@@ -103,6 +151,8 @@ export function main(argv?: readonly string[]): Promise<number> {
   return runCli(argv ?? process.argv.slice(2), {
     reader: createNodeProjectReader(),
     cwd: process.cwd(),
+    interactive: process.stdin.isTTY,
+    style: createStyler(process.stdout.isTTY),
     out: (line: string) => process.stdout.write(`${line}\n`),
     err: (line: string) => process.stderr.write(`${line}\n`),
   });
@@ -123,6 +173,24 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return 'unknown error';
+}
+
+function terminalQuestion(question: string): Promise<string> {
+  const readline = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    readline.question(question, (answer) => {
+      readline.close();
+      resolve(answer);
+    });
+  });
+}
+
+function resolveStyler(env: CliEnv): Styler {
+  return env.style ?? createStyler(false);
+}
+
+function resolveInteractive(env: CliEnv): boolean {
+  return env.interactive ?? false;
 }
 
 function readVersion(): string {
