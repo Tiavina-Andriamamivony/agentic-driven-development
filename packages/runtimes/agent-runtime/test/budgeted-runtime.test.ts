@@ -51,7 +51,13 @@ describe('BudgetedAgentRuntime', () => {
   it('charges the budget for a run that failed', async () => {
     const budget = new RunBudget({ maxCostUsd: 1 });
     const runtime = new BudgetedAgentRuntime({
-      inner: failingRuntime(new AgentRunFailedError('r', 'boom', { costUsd: 0.25 })),
+      inner: failingRuntime(
+        new AgentRunFailedError('r', 'boom', {
+          promptTokens: 120,
+          completionTokens: 30,
+          costUsd: 0.25,
+        }),
+      ),
       budget,
       now: () => 0,
     });
@@ -61,9 +67,30 @@ describe('BudgetedAgentRuntime', () => {
     expect(budget.totals.totalCostUsd).toBe(0.25);
   });
 
+  it('charges the tokens a failed run reported', async () => {
+    const budget = new RunBudget({});
+    const runtime = new BudgetedAgentRuntime({
+      inner: failingRuntime(
+        new AgentRunFailedError('r', 'boom', {
+          promptTokens: 120,
+          completionTokens: 30,
+          costUsd: 0,
+        }),
+      ),
+      budget,
+      now: () => 0,
+    });
+
+    await runtime.run(INPUT).catch(() => undefined);
+
+    expect(budget.totals.totalTokens).toBe(150);
+  });
+
   it('keeps the original failure, not a budget error, when both happen', async () => {
     const runtime = new BudgetedAgentRuntime({
-      inner: failingRuntime(new AgentRunFailedError('r', 'boom', { costUsd: 5 })),
+      inner: failingRuntime(
+        new AgentRunFailedError('r', 'boom', { promptTokens: 10, completionTokens: 5, costUsd: 5 }),
+      ),
       budget: new RunBudget({ maxCostUsd: 1 }),
       now: () => 0,
     });
@@ -74,7 +101,9 @@ describe('BudgetedAgentRuntime', () => {
   it('stops the next run once a failed run exhausted the budget', async () => {
     const budget = new RunBudget({ maxCostUsd: 1 });
     const runtime = new BudgetedAgentRuntime({
-      inner: failingRuntime(new AgentRunFailedError('r', 'boom', { costUsd: 5 })),
+      inner: failingRuntime(
+        new AgentRunFailedError('r', 'boom', { promptTokens: 10, completionTokens: 5, costUsd: 5 }),
+      ),
       budget,
       now: () => 0,
     });
