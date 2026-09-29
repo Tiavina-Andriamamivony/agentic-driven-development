@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { AgentRunFailedError } from '@lou/agent-runtime';
 import { ClaudeCodeRuntime } from '../src/claude-code-runtime.ts';
 import { FakeRunner } from './fake-runner.ts';
 
@@ -134,6 +135,86 @@ describe('ClaudeCodeRuntime', () => {
     const outcome = await pending;
     expect(outcome.usage).toBeUndefined();
     expect(outcome.stdout).toBe('not json at all');
+  });
+
+  it('raises when the payload reports a failed run', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+    const failed = JSON.stringify({
+      is_error: true,
+      subtype: 'error_during_execution',
+      result: null,
+      errors: ['model overloaded'],
+      total_cost_usd: 0,
+      usage: { input_tokens: 0, output_tokens: 0 },
+    });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(result(failed));
+
+    await expect(pending).rejects.toBeInstanceOf(AgentRunFailedError);
+  });
+
+  it('carries the cli error text on the failure', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+    const failed = JSON.stringify({
+      is_error: true,
+      subtype: 'error_during_execution',
+      errors: ['model overloaded'],
+    });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(result(failed));
+
+    await expect(pending).rejects.toThrow('model overloaded');
+  });
+
+  it('names the failure subtype when the cli gives no error text', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+    const failed = JSON.stringify({ is_error: true, subtype: 'error_max_turns' });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(result(failed));
+
+    await expect(pending).rejects.toThrow('error_max_turns');
+  });
+
+  it('records the run as finished when the payload reports a failure', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+    const failed = JSON.stringify({ is_error: true, subtype: 'error_during_execution' });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(result(failed));
+    await pending.catch(() => undefined);
+
+    expect(await runtime.getStatus('RUN-001')).toEqual({
+      runId: 'RUN-001',
+      running: false,
+      finished: true,
+      exitCode: 0,
+    });
+  });
+
+  it('accepts a successful payload with is_error false', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+    const ok = JSON.stringify({
+      is_error: false,
+      subtype: 'success',
+      result: 'done',
+      total_cost_usd: 0.1,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(result(ok));
+
+    const outcome = await pending;
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.usage?.costUsd).toBe(0.1);
   });
 
   it('reports the run as finished with the exit code of the cli', async () => {
