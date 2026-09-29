@@ -36,6 +36,51 @@ describe('NodeGitAdapter', () => {
     await expect(adapter.isClean()).resolves.toBe(false);
   });
 
+  it('stages the given paths so a later commit records them', async () => {
+    writeFileSync(join(dir, 'seed.txt'), 'seed');
+    git(['add', '.']);
+    git(['commit', '-m', 'chore: seed']);
+    writeFileSync(join(dir, 'tracked.txt'), 'changed');
+    writeFileSync(join(dir, 'untracked.txt'), 'new');
+
+    await adapter.stage(['tracked.txt']);
+    await adapter.commit('feat: staged change');
+
+    const committed = git(['show', '--name-only', '--pretty=format:', 'HEAD']);
+    expect(committed).toContain('tracked.txt');
+  });
+
+  it('stages nothing beyond the paths it was given', async () => {
+    writeFileSync(join(dir, 'seed.txt'), 'seed');
+    git(['add', '.']);
+    git(['commit', '-m', 'chore: seed']);
+    writeFileSync(join(dir, 'tracked.txt'), 'changed');
+    writeFileSync(join(dir, 'untracked.txt'), 'new');
+
+    await adapter.stage(['tracked.txt']);
+    await adapter.commit('feat: only the tracked change');
+
+    const committed = git(['show', '--name-only', '--pretty=format:', 'HEAD']);
+    expect(committed).not.toContain('untracked.txt');
+  });
+
+  it('refuses to stage a path the agent never wrote', async () => {
+    writeFileSync(join(dir, 'seed.txt'), 'seed');
+    git(['add', '.']);
+    git(['commit', '-m', 'chore: seed']);
+
+    await expect(adapter.stage(['never-written.txt'])).rejects.toThrow();
+  });
+
+  it('treats a path starting with a dash as a path, not an option', async () => {
+    writeFileSync(join(dir, 'seed.txt'), 'seed');
+    git(['add', '.']);
+    git(['commit', '-m', 'chore: seed']);
+    writeFileSync(join(dir, '--weird.txt'), 'weird');
+
+    await expect(adapter.stage(['--weird.txt'])).resolves.toBeUndefined();
+  });
+
   it('returns the current branch name', async () => {
     writeFileSync(join(dir, 'file.txt'), 'root');
     git(['add', '.']);

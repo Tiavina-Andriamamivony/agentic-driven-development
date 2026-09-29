@@ -43,6 +43,10 @@ interface HarnessOptions {
   readonly testScripts?: readonly TestRunScript[];
   readonly reviewerReplies?: readonly RuntimeReply[];
   readonly keeperAnswers?: readonly string[];
+  readonly changedFiles?: {
+    readonly tests: readonly string[];
+    readonly implementation: readonly string[];
+  };
 }
 
 function buildHarness(options: HarnessOptions = {}) {
@@ -57,7 +61,7 @@ function buildHarness(options: HarnessOptions = {}) {
     review: options.reviewDecisions ?? [],
     answers: options.keeperAnswers ?? [],
   });
-  const steps = createSteps(plan, options.questions);
+  const steps = createSteps(plan, options.questions, 'implemented', options.changedFiles);
   const runtime = new RuntimeRecorder(options.reviewerReplies ?? APPROVED_STDOUT_REPLIES);
   const reviewer = new ReviewerAgent({ runtime });
   const orchestrator = new Orchestrator({
@@ -90,6 +94,36 @@ describe('Orchestrator', () => {
     expect(git.pushes).toBe(1);
     expect(github.created[0]?.title).toBe(PLAN.title);
     expect(steps.state.understandCalls).toHaveLength(1);
+  });
+
+  it('stages every file the agents reported before committing', async () => {
+    const { orchestrator, git } = buildHarness();
+
+    await orchestrator.run();
+
+    expect(git.staged).toEqual(['test/feature.spec.ts', 'src/index.ts']);
+  });
+
+  it('stages before it commits', async () => {
+    const { orchestrator, git } = buildHarness();
+
+    await orchestrator.run();
+
+    expect(git.calls.indexOf('stage')).toBeLessThan(git.calls.indexOf('commit'));
+  });
+
+  it('refuses to open a pull request when the agents reported no change', async () => {
+    const { orchestrator, git, github } = buildHarness({
+      changedFiles: { tests: [], implementation: [] },
+    });
+
+    const outcome = await orchestrator.run();
+
+    expect(git.staged).toEqual([]);
+    expect(git.commits).toEqual([]);
+    expect(git.pushes).toBe(0);
+    expect(github.created).toHaveLength(0);
+    expect(outcome.status).toBe('failed');
   });
 
   it('creates the feature branch before tests are written', async () => {

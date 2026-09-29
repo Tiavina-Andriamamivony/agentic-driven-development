@@ -22,8 +22,11 @@ export function createSteps(
   plan: PlanDraft,
   questions: readonly string[] = [],
   implementationSummary = 'implemented',
+  changedFiles?: { readonly tests: readonly string[]; readonly implementation: readonly string[] },
 ): StepsSpy {
   const understandCalls: UnderstandInput[] = [];
+  const testFiles = changedFiles?.tests ?? ['test/feature.spec.ts'];
+  const implementationFiles = changedFiles?.implementation ?? ['src/index.ts'];
   let implementations = 0;
   let testWrites = 0;
   let testDesigns = 0;
@@ -38,11 +41,11 @@ export function createSteps(
     },
     writeTests(): Promise<ChangeNote> {
       testWrites += 1;
-      return Promise.resolve({ changedFiles: ['test/feature.spec.ts'], summary: 'tests written' });
+      return Promise.resolve({ changedFiles: testFiles, summary: 'tests written' });
     },
     implement(): Promise<ChangeNote> {
       implementations += 1;
-      return Promise.resolve({ changedFiles: ['src/index.ts'], summary: implementationSummary });
+      return Promise.resolve({ changedFiles: implementationFiles, summary: implementationSummary });
     },
   };
   return {
