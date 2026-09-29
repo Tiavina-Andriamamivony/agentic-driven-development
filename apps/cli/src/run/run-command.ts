@@ -22,6 +22,7 @@ import { Workflow } from '@lou/state-machine';
 import { NodeTestRunner } from '@lou/test-runner';
 import type { TestRunner } from '@lou/test-runner';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { createOpenCodeSteps } from './opencode-steps.ts';
@@ -344,12 +345,98 @@ function agentSettings(settings: {
 
 export async function runProduction(options: ProductionRunOptions): Promise<number> {
   const many = options.issueNumbers.length > 1;
+  const worktrees = defaultWorktrees(options.cwd);
   return runBatch(
     options.issueNumbers,
     options.out,
-    (issueNumber) => runOne(issueNumber, options, many),
+    (issueNumber) => runOne(issueNumber, options, many, worktrees),
     options.maxConcurrency ?? 1,
   );
+}
+
+export interface GitWorktrees {
+  readonly add: (path: string) => Promise<void>;
+  readonly remove: (path: string) => Promise<void>;
+}
+
+export async function inWorktree<T>(
+  isolated: boolean,
+  worktrees: GitWorktrees,
+  path: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!isolated) {
+    return run();
+  }
+  await worktrees.add(path);
+  try {
+    return await run();
+  } finally {
+    await removeWorktreeBestEffort(worktrees, path);
+  }
+}
+
+async function removeWorktreeBestEffort(worktrees: GitWorktrees, path: string): Promise<void> {
+  try {
+    await worktrees.remove(path);
+  } catch {
+    return;
+  }
+}
+
+async function runOne(
+  issueNumber: number,
+  options: ProductionRunOptions,
+  many: boolean,
+  worktrees: GitWorktrees,
+): Promise<number> {
+  if (!many) {
+    return runTicketWithin(options, issueNumber, options.cwd, many);
+  }
+  const workspace = worktreePath(issueNumber);
+  return inWorktree(true, worktrees, workspace, () =>
+    runTicketWithin(options, issueNumber, workspace, many),
+  );
+}
+
+function worktreePath(issueNumber: number): string {
+  return join(tmpdir(), 'lou', 'worktrees', `run-${issueNumber}`);
+}
+
+function defaultWorktrees(root: string): GitWorktrees {
+  const git = new NodeGitAdapter({ root });
+  return {
+    add: (path) => git.addWorktree(path),
+    remove: (path) => git.removeWorktree(path),
+  };
+}
+
+async function runTicketWithin(
+  options: ProductionRunOptions,
+  issueNumber: number,
+  workspace: string,
+  many: boolean,
+): Promise<number> {
+  const auditFile = join(options.cwd, '.lou', 'runs', `run-${issueNumber}.jsonl`);
+  return runTicket({
+    issueNumber,
+    workspace,
+    github: new NodeGitHubAdapter({ root: workspace }),
+    git: new NodeGitAdapter({ root: workspace }),
+    tests: new NodeTestRunner(),
+    audit: new NodeAuditLog({ file: auditFile }),
+    runtime: new OpenCodeRuntime(),
+    conventions: 'conventional commits',
+    ask: terminalQuestion,
+    out: (line) => {
+      options.out(many ? `[#${issueNumber}] ${line}` : line);
+    },
+    dryRun: options.dryRun,
+    summarize: writeRunSummaryFile(options.cwd),
+    ...agentSettings(options),
+    ...(options.maxCostUsd !== undefined ? { maxCostUsd: options.maxCostUsd } : {}),
+    ...(options.maxMinutes !== undefined ? { maxMinutes: options.maxMinutes } : {}),
+  });
 }
 
 export async function runBatch(
@@ -365,33 +452,6 @@ export async function runBatch(
     out(`Batch: ${successes}/${total} tickets reached a pull request.`);
   }
   return successes === total ? 0 : 1;
-}
-
-async function runOne(
-  issueNumber: number,
-  options: ProductionRunOptions,
-  many: boolean,
-): Promise<number> {
-  const auditFile = join(options.cwd, '.lou', 'runs', `run-${issueNumber}.jsonl`);
-  return runTicket({
-    issueNumber,
-    workspace: options.cwd,
-    github: new NodeGitHubAdapter({ root: options.cwd }),
-    git: new NodeGitAdapter({ root: options.cwd }),
-    tests: new NodeTestRunner(),
-    audit: new NodeAuditLog({ file: auditFile }),
-    runtime: new OpenCodeRuntime(),
-    conventions: 'conventional commits',
-    ask: terminalQuestion,
-    out: (line) => {
-      options.out(many ? `[#${issueNumber}] ${line}` : line);
-    },
-    dryRun: options.dryRun,
-    summarize: writeRunSummaryFile(options.cwd),
-    ...agentSettings(options),
-    ...(options.maxCostUsd !== undefined ? { maxCostUsd: options.maxCostUsd } : {}),
-    ...(options.maxMinutes !== undefined ? { maxMinutes: options.maxMinutes } : {}),
-  });
 }
 
 function writeRunSummaryFile(workspace: string): (summary: RunSummary) => Promise<void> {
