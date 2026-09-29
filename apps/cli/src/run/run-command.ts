@@ -25,6 +25,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { createOpenCodeSteps } from './opencode-steps.ts';
+import { mapWithConcurrency } from './concurrency.ts';
 import { createTerminalKeeper } from './terminal-keeper.ts';
 
 const STREAMED_EVENTS: ReadonlySet<string> = new Set([
@@ -51,6 +52,7 @@ export interface RunEnvironment {
   readonly mcp?: Readonly<Record<string, string>>;
   readonly maxCostUsd?: number;
   readonly maxMinutes?: number;
+  readonly maxConcurrency?: number;
   readonly summarize?: (summary: RunSummary) => Promise<void>;
 }
 
@@ -70,6 +72,7 @@ interface ProductionRunOptions {
   readonly dryRun: boolean;
   readonly maxCostUsd?: number;
   readonly maxMinutes?: number;
+  readonly maxConcurrency?: number;
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
@@ -80,6 +83,7 @@ export interface RunArguments {
   readonly dryRun: boolean;
   readonly maxCostUsd?: number;
   readonly maxMinutes?: number;
+  readonly maxConcurrency?: number;
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
@@ -91,6 +95,7 @@ const MODEL_BY_AGENT_FLAG = '--model-by-agent';
 const MCP_FLAG = '--mcp';
 const MAX_COST_FLAG = '--max-cost-usd';
 const MAX_TIME_FLAG = '--max-time-min';
+const MAX_CONCURRENCY_FLAG = '--max-concurrency';
 
 export function readIssueNumber(value: string | undefined): number | null {
   if (value === undefined) {
@@ -124,6 +129,7 @@ interface FlagSettings {
   readonly mcp?: Readonly<Record<string, string>>;
   readonly maxCostUsd?: number;
   readonly maxMinutes?: number;
+  readonly maxConcurrency?: number;
 }
 
 function flagSettings(flags: FlagState): FlagSettings {
@@ -133,6 +139,7 @@ function flagSettings(flags: FlagState): FlagSettings {
     ...(Object.keys(flags.mcp).length > 0 ? { mcp: flags.mcp } : {}),
     ...(flags.maxCostUsd !== undefined ? { maxCostUsd: flags.maxCostUsd } : {}),
     ...(flags.maxMinutes !== undefined ? { maxMinutes: flags.maxMinutes } : {}),
+    ...(flags.maxConcurrency !== undefined ? { maxConcurrency: flags.maxConcurrency } : {}),
   };
 }
 
@@ -158,6 +165,7 @@ interface FlagState {
   mcp: Record<string, string>;
   maxCostUsd: number | undefined;
   maxMinutes: number | undefined;
+  maxConcurrency: number | undefined;
 }
 
 type FlagApplier = (value: string, flags: FlagState) => boolean;
@@ -168,6 +176,7 @@ const FLAG_APPLIERS: Readonly<Record<string, FlagApplier>> = {
   [MCP_FLAG]: applyMcp,
   [MAX_COST_FLAG]: applyMaxCost,
   [MAX_TIME_FLAG]: applyMaxMinutes,
+  [MAX_CONCURRENCY_FLAG]: applyMaxConcurrency,
 };
 
 function parseFlags(rest: readonly string[]): FlagState | null {
@@ -178,6 +187,7 @@ function parseFlags(rest: readonly string[]): FlagState | null {
     mcp: {},
     maxCostUsd: undefined,
     maxMinutes: undefined,
+    maxConcurrency: undefined,
   };
   for (let index = 0; index < rest.length; index += 1) {
     const nextIndex = applyFlag(rest, index, flags);
@@ -255,6 +265,23 @@ function applyMaxMinutes(value: string, flags: FlagState): boolean {
   return true;
 }
 
+function applyMaxConcurrency(value: string, flags: FlagState): boolean {
+  const concurrency = parsePositiveInteger(value);
+  if (concurrency === null) {
+    return false;
+  }
+  flags.maxConcurrency = concurrency;
+  return true;
+}
+
+function parsePositiveInteger(value: string): number | null {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
 function parsePositiveNumber(value: string): number | null {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -317,8 +344,11 @@ function agentSettings(settings: {
 
 export async function runProduction(options: ProductionRunOptions): Promise<number> {
   const many = options.issueNumbers.length > 1;
-  return runBatch(options.issueNumbers, options.out, (issueNumber) =>
-    runOne(issueNumber, options, many),
+  return runBatch(
+    options.issueNumbers,
+    options.out,
+    (issueNumber) => runOne(issueNumber, options, many),
+    options.maxConcurrency ?? 1,
   );
 }
 
@@ -326,17 +356,15 @@ export async function runBatch(
   issueNumbers: readonly number[],
   out: (line: string) => void,
   runOne: (issueNumber: number) => Promise<number>,
+  concurrency = 1,
 ): Promise<number> {
-  const successes: number[] = [];
-  for (const issueNumber of issueNumbers) {
-    if ((await runOne(issueNumber)) === 0) {
-      successes.push(issueNumber);
-    }
+  const codes = await mapWithConcurrency(issueNumbers, concurrency, runOne);
+  const successes = codes.filter((code) => code === 0).length;
+  const total = issueNumbers.length;
+  if (total > 1) {
+    out(`Batch: ${successes}/${total} tickets reached a pull request.`);
   }
-  if (issueNumbers.length > 1) {
-    out(`Batch: ${successes.length}/${issueNumbers.length} tickets reached a pull request.`);
-  }
-  return successes.length === issueNumbers.length ? 0 : 1;
+  return successes === total ? 0 : 1;
 }
 
 async function runOne(

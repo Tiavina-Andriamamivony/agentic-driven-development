@@ -521,6 +521,22 @@ describe('runBatch', () => {
     expect(code).toBe(0);
     expect(out).toEqual([]);
   });
+
+  it('runs every ticket once in parallel when given a concurrency limit', async () => {
+    const started: number[] = [];
+    const code = await runBatch(
+      [1, 2, 3],
+      () => {},
+      (n) => {
+        started.push(n);
+        return Promise.resolve(n === 2 ? 1 : 0);
+      },
+      2,
+    );
+
+    expect(code).toBe(1);
+    expect(started.sort((a, b) => a - b)).toEqual([1, 2, 3]);
+  });
 });
 
 describe('runTicket summaries', () => {
@@ -605,6 +621,22 @@ describe('parseRunArguments multi-issue', () => {
   it('rejects a run without any issue number', () => {
     expect(parseRunArguments(['run'])).toBeNull();
     expect(parseRunArguments(['run', '--dry-run'])).toBeNull();
+  });
+
+  it('parses a --max-concurrency option', () => {
+    expect(parseRunArguments(['run', '12', '13', '--max-concurrency', '3'])).toEqual({
+      issueNumbers: [12, 13],
+      dryRun: false,
+      maxConcurrency: 3,
+    });
+  });
+
+  it('rejects non-integer or non-positive --max-concurrency values', () => {
+    expect(parseRunArguments(['run', '12', '--max-concurrency', '0'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--max-concurrency', '-2'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--max-concurrency', '2.5'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--max-concurrency', 'abc'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--max-concurrency'])).toBeNull();
   });
 });
 
