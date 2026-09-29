@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { runCli } from '../src/cli';
 import type { DoctorProbes } from '../src/doctor/doctor-command';
 import { parseInitJsonFlag } from '../src/init/run-init';
+import type { OpenCodeInstaller } from '../src/ux/opencode-installer';
 import { createMemoryReader } from './memory-reader';
 
 interface Collector {
@@ -11,6 +12,17 @@ interface Collector {
 
 function createCollector(): Collector {
   return { out: [], err: [] };
+}
+
+function missingOpenCode(): OpenCodeInstaller {
+  return {
+    detect(): Promise<boolean> {
+      return Promise.resolve(false);
+    },
+    install(): Promise<boolean> {
+      return Promise.resolve(true);
+    },
+  };
 }
 
 describe('runCli', () => {
@@ -113,6 +125,81 @@ describe('runCli', () => {
 
     expect(code).toBe(1);
     expect(collector.err.join('\n')).toContain('Usage: lou doctor');
+  });
+
+  it('bails out of run when opencode is missing and the session is not interactive', async () => {
+    const collector = createCollector();
+    const code = await runCli(['run', '7'], {
+      reader: createMemoryReader({}),
+      cwd: '/work',
+      openCodeInstaller: missingOpenCode(),
+      interactive: false,
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(1);
+    expect(collector.out.join('\n')).toContain('opencode is required');
+    expect(collector.out.join('\n')).not.toContain('Cannot fetch issue');
+  });
+
+  it('bails out of run when the user declines the opencode install', async () => {
+    const collector = createCollector();
+    const code = await runCli(['run', '7'], {
+      reader: createMemoryReader({}),
+      cwd: '/work',
+      openCodeInstaller: missingOpenCode(),
+      interactive: true,
+      ask: () => Promise.resolve('n'),
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(1);
+    expect(collector.out.join('\n')).toContain('Skipping install');
+    expect(collector.out.join('\n')).not.toContain('Cannot fetch issue');
+  });
+
+  it('installs opencode during init when the user agrees', async () => {
+    const collector = createCollector();
+    const code = await runCli(['init'], {
+      reader: createMemoryReader({ 'package.json': '{}' }),
+      cwd: '',
+      openCodeInstaller: missingOpenCode(),
+      interactive: true,
+      ask: () => Promise.resolve('y'),
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(0);
+    expect(collector.out.join('\n')).toContain('Project successfully onboarded.');
+    expect(collector.out.join('\n')).toContain('opencode installed');
+  });
+
+  it('keeps init --json machine-readable when opencode is missing', async () => {
+    const collector = createCollector();
+    const code = await runCli(['init', '--json'], {
+      reader: createMemoryReader({ 'package.json': '{}' }),
+      cwd: '',
+      openCodeInstaller: missingOpenCode(),
+      interactive: true,
+      ask: () => Promise.resolve('y'),
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(0);
+    const text = collector.out.join('\n');
+    expect(text).not.toContain('opencode');
+    expect(JSON.parse(text)).toEqual({
+      packageManager: null,
+      gitRepository: false,
+      commitConventions: [],
+      docs: [],
+      ci: false,
+      constitution: false,
+    });
   });
 
   it('rejects an unknown command', async () => {

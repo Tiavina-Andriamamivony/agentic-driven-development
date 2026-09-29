@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatDoctorReport, runDoctor } from '../src/doctor/doctor-command';
 import type { DoctorProbes } from '../src/doctor/doctor-command';
+import { createStyler } from '../src/ux/style';
 
 function okProbes(): DoctorProbes {
   return {
@@ -38,11 +39,11 @@ describe('formatDoctorReport', () => {
     const report = await runDoctor(okProbes());
     const text = formatDoctorReport(report);
 
-    expect(text).toContain('OK  Node runtime — v24.18.0');
-    expect(text).toContain('OK  pnpm — 10.9.0');
-    expect(text).toContain('OK  GitHub CLI — authenticated');
-    expect(text).toContain('OK  opencode — v1.0.0');
-    expect(text).toContain('OK  Git repository — inside a git work tree');
+    expect(text).toContain('✔  Node runtime — v24.18.0');
+    expect(text).toContain('✔  pnpm — 10.9.0');
+    expect(text).toContain('✔  GitHub CLI — authenticated');
+    expect(text).toContain('✔  opencode — v1.0.0');
+    expect(text).toContain('✔  Git repository — inside a git work tree');
     expect(text).toContain('5/5 checks passed.');
   });
 
@@ -53,7 +54,25 @@ describe('formatDoctorReport', () => {
 
     const text = formatDoctorReport(await runDoctor(probes));
 
-    expect(text).toContain('KO  opencode — not found on PATH');
+    expect(text).toContain('✖  opencode — not found on PATH');
     expect(text).toContain('4/5 checks passed.');
+  });
+
+  it('colors the checks when a styler is enabled', async () => {
+    const report = await runDoctor(okProbes());
+
+    const text = formatDoctorReport(report, createStyler(true));
+
+    expect(text).toContain('\x1b[32m✔\x1b[0m  Node runtime — v24.18.0');
+  });
+
+  it('suggests an install when opencode is missing', async () => {
+    const probes = okProbes();
+    probes.opencode = () =>
+      Promise.resolve({ label: 'opencode', ok: false, detail: 'not found on PATH' });
+
+    const text = formatDoctorReport(await runDoctor(probes));
+
+    expect(text).toContain('Run `lou init` in a terminal to install it.');
   });
 });
