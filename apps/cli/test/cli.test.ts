@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { runCli } from '../src/cli';
 import type { DoctorProbes } from '../src/doctor/doctor-command';
 import { parseInitJsonFlag } from '../src/init/run-init';
+import type { RunsSnapshot, RunsStore } from '../src/runs/runs-list';
 import type { OpenCodeInstaller } from '../src/ux/opencode-installer';
 import { createMemoryReader } from './memory-reader';
 
@@ -12,6 +13,10 @@ interface Collector {
 
 function createCollector(): Collector {
   return { out: [], err: [] };
+}
+
+function storeOf(snapshot: RunsSnapshot): RunsStore {
+  return { snapshot: () => snapshot };
 }
 
 function missingOpenCode(): OpenCodeInstaller {
@@ -214,6 +219,50 @@ describe('runCli', () => {
     expect(code).toBe(1);
     expect(collector.out).toEqual([]);
     expect(collector.err.join('\n')).toContain('Unknown command: nope');
+  });
+
+  it('lists the runs from the runs store', async () => {
+    const collector = createCollector();
+    const code = await runCli(['runs'], {
+      reader: createMemoryReader({}),
+      runsStore: storeOf({ summaries: [], inProgress: [7] }),
+      cwd: '',
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(0);
+    expect(collector.out).toEqual(['#7  in progress']);
+    expect(collector.err).toEqual([]);
+  });
+
+  it('lists runs as JSON with --json', async () => {
+    const collector = createCollector();
+    const code = await runCli(['runs', '--json'], {
+      reader: createMemoryReader({}),
+      runsStore: storeOf({ summaries: [], inProgress: [7] }),
+      cwd: '',
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(collector.out.join('\n')) as readonly { issueNumber: number }[];
+    expect(parsed).toEqual([{ issueNumber: 7, status: 'running' }]);
+  });
+
+  it('rejects unknown runs arguments', async () => {
+    const collector = createCollector();
+    const code = await runCli(['runs', 'bogus'], {
+      reader: createMemoryReader({}),
+      runsStore: storeOf({ summaries: [], inProgress: [] }),
+      cwd: '',
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(1);
+    expect(collector.err.join('\n')).toContain('Usage: lou runs [--json]');
   });
 
   it('prints usage when no command is given', async () => {
