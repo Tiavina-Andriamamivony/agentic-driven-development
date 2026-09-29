@@ -1,7 +1,8 @@
 import { BudgetExceededError } from '@lou/budget';
 import type { RunBudget } from '@lou/budget';
+import { AgentRunFailedError } from './agent-run-failed-error.ts';
 import type { AgentRuntime } from './runtime.ts';
-import type { AgentRunInput, AgentRunResult, AgentStatus } from './types.ts';
+import type { AgentRunInput, AgentRunResult, AgentStatus, TokenUsage } from './types.ts';
 
 export interface BudgetedRuntimeOptions {
   readonly inner: AgentRuntime;
@@ -21,19 +22,16 @@ export class BudgetedAgentRuntime implements AgentRuntime {
   }
 
   async run(input: AgentRunInput): Promise<AgentRunResult> {
+    this.assertWithinBudget();
     const startedAt = this.now();
-    const result = await this.inner.run(input);
-    this.budget.record({
-      promptTokens: result.usage?.promptTokens ?? 0,
-      completionTokens: result.usage?.completionTokens ?? 0,
-      elapsedMs: this.now() - startedAt,
-      ...(result.usage?.costUsd !== undefined ? { costUsd: result.usage.costUsd } : {}),
-    });
-    const exceeded = this.budget.exhausted();
-    if (exceeded !== null) {
-      throw new BudgetExceededError(exceeded);
+    try {
+      const result = await this.inner.run(input);
+      this.chargeSuccess(result, startedAt);
+      return result;
+    } catch (error) {
+      this.chargeFailed(error, startedAt);
+      throw error;
     }
-    return result;
   }
 
   getStatus(runId: string): Promise<AgentStatus> {
@@ -42,5 +40,38 @@ export class BudgetedAgentRuntime implements AgentRuntime {
 
   interrupt(runId: string): Promise<void> {
     return this.inner.interrupt(runId);
+  }
+
+  private assertWithinBudget(): void {
+    const exceeded = this.budget.exhausted();
+    if (exceeded !== null) {
+      throw new BudgetExceededError(exceeded);
+    }
+  }
+
+  private chargeSuccess(result: AgentRunResult, startedAt: number): void {
+    this.charge(result.usage, startedAt);
+    this.assertWithinBudget();
+  }
+
+  private chargeFailed(error: unknown, startedAt: number): void {
+    if (!(error instanceof AgentRunFailedError)) {
+      return;
+    }
+    this.charge(
+      error.costUsd === null
+        ? undefined
+        : { promptTokens: 0, completionTokens: 0, costUsd: error.costUsd },
+      startedAt,
+    );
+  }
+
+  private charge(usage: TokenUsage | undefined, startedAt: number): void {
+    this.budget.record({
+      promptTokens: usage?.promptTokens ?? 0,
+      completionTokens: usage?.completionTokens ?? 0,
+      elapsedMs: this.now() - startedAt,
+      ...(usage?.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
+    });
   }
 }

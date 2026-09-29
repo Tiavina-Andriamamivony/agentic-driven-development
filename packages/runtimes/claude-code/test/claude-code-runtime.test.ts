@@ -198,6 +198,33 @@ describe('ClaudeCodeRuntime', () => {
     });
   });
 
+  it('carries the cost of a failed run on the error', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+    const failed = JSON.stringify({
+      is_error: true,
+      subtype: 'error_during_execution',
+      total_cost_usd: 0.42,
+      usage: { input_tokens: 1200, output_tokens: 300 },
+    });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(result(failed));
+
+    await expect(pending).rejects.toMatchObject({ costUsd: 0.42 });
+  });
+
+  it('reports no cost on the error when the payload omits it', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+    const failed = JSON.stringify({ is_error: true, subtype: 'error_during_execution' });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(result(failed));
+
+    await expect(pending).rejects.toMatchObject({ costUsd: null });
+  });
+
   it('accepts a successful payload with is_error false', async () => {
     const runner = new FakeRunner();
     const runtime = new ClaudeCodeRuntime({ runner });

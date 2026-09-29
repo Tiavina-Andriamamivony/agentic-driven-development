@@ -18,4 +18,18 @@ describe('AgentRunFailedError', () => {
   it('is an Error, so existing catch blocks keep working', () => {
     expect(new AgentRunFailedError('RUN-001', 'x')).toBeInstanceOf(Error);
   });
+
+  it('carries the spend so a failed run can still be charged', () => {
+    const error = new AgentRunFailedError('RUN-001', 'model overloaded', {
+      costUsd: 0.3,
+    });
+
+    expect(error.costUsd).toBe(0.3);
+  });
+
+  it('reports no cost when the runtime could not tell', () => {
+    const error = new AgentRunFailedError('RUN-001', 'truncated output');
+
+    expect(error.costUsd).toBeNull();
+  });
 });
