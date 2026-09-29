@@ -64,7 +64,7 @@ interface ProductionRunOptions {
   readonly mcp?: Readonly<Record<string, string>>;
 }
 
-interface RunArguments {
+export interface RunArguments {
   readonly issueNumber: number;
   readonly dryRun: boolean;
   readonly maxCostUsd?: number;

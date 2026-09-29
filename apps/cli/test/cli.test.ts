@@ -268,6 +268,62 @@ describe('runCli', () => {
     expect(collector.out.join('\n')).toContain('Usage: lou <command>');
     expect(collector.err).toEqual([]);
   });
+
+  it('upgrades a managed install through the injected runner', async () => {
+    const collector = createCollector();
+    let ran = false;
+    const code = await runCli(['upgrade', 'v0.2.0'], {
+      reader: createMemoryReader({}),
+      cwd: '',
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+      upgrade: {
+        scriptPath: '/home/u/.lou/current/apps/cli/src/cli.ts',
+        currentVersion: '0.1.0',
+        platform: 'linux',
+        nodeBin: '/usr/bin/node',
+        repo: 'Tiavina-Andriamamivony/lou-agents-orchestrator',
+        latest: () => Promise.resolve('v0.2.0'),
+        runner: () => {
+          ran = true;
+          return Promise.resolve({ ok: true });
+        },
+        detect: () => ({ managed: true, prefix: '/home/u/.lou' }),
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(ran).toBe(true);
+    expect(collector.out.join('\n')).toContain('Upgrade complete.');
+  });
+
+  it('reports a dev checkout without running anything', async () => {
+    const collector = createCollector();
+    let ran = false;
+    const code = await runCli(['upgrade'], {
+      reader: createMemoryReader({}),
+      cwd: '',
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+      upgrade: {
+        scriptPath: '/home/u/lou/apps/cli/src/cli.ts',
+        currentVersion: '0.1.0',
+        platform: 'linux',
+        nodeBin: '/usr/bin/node',
+        repo: 'Tiavina-Andriamamivony/lou-agents-orchestrator',
+        latest: () => Promise.resolve('v0.2.0'),
+        runner: () => {
+          ran = true;
+          return Promise.resolve({ ok: true });
+        },
+        detect: () => ({ managed: false }),
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(ran).toBe(false);
+    expect(collector.out.join('\n')).toContain('not managed');
+  });
 });
 
 describe('parseInitJsonFlag', () => {
