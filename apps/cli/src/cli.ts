@@ -32,7 +32,7 @@ const USAGE = `Usage: lou <command> [args]
 Commands:
   doctor  Check the runtime prerequisites: lou doctor.
   init    Read-only project onboarding report: lou init [--json].
-  run     Drive one or more GitHub issues to a pull request: lou run <issue-number> [<issue-number> ...] [--dry-run] [--model <name>] [--model-by-agent planner=...,developer=...] [--mcp name=command] [--max-cost-usd <usd>] [--max-time-min <minutes>].
+  run     Drive one or more GitHub issues to a pull request: lou run <issue-number> [<issue-number> ...] [--dry-run] [--model <name>] [--model-by-agent planner=...,developer=...] [--mcp name=command] [--max-cost-usd <usd>] [--max-time-min <minutes>] [--max-concurrency <n>].
   upgrade Self-update to the latest Lou version: lou upgrade [<version>].`;
 
 const HELP_COMMANDS = new Set(['--help', '-h', 'help']);
@@ -142,7 +142,7 @@ async function handleRun(argv: readonly string[], env: CliEnv): Promise<number> 
   const parsed = parseRunArguments(argv);
   if (parsed === null) {
     env.err(
-      'Usage: lou run <issue-number> [<issue-number> ...] [--dry-run] [--model <name>] [--model-by-agent planner=...] [--mcp name=command] [--max-cost-usd <usd>] [--max-time-min <minutes>]',
+      'Usage: lou run <issue-number> [<issue-number> ...] [--dry-run] [--model <name>] [--model-by-agent planner=...] [--mcp name=command] [--max-cost-usd <usd>] [--max-time-min <minutes>] [--max-concurrency <n>]',
     );
     return 1;
   }
@@ -166,6 +166,7 @@ function executeRun(parsed: RunArguments, env: CliEnv): Promise<number> {
     ...(parsed.mcp !== undefined ? { mcp: parsed.mcp } : {}),
     ...(parsed.maxCostUsd !== undefined ? { maxCostUsd: parsed.maxCostUsd } : {}),
     ...(parsed.maxMinutes !== undefined ? { maxMinutes: parsed.maxMinutes } : {}),
+    ...(parsed.maxConcurrency !== undefined ? { maxConcurrency: parsed.maxConcurrency } : {}),
   }).catch((error: unknown) => {
     env.err(`lou run failed: ${errorMessage(error)}`);
     return 1;
