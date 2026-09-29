@@ -1,9 +1,11 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { createNodeProjectReader } from './init/project-reader.ts';
 import type { ProjectReader } from './init/project-reader.ts';
 import { parseRunArguments, runProduction } from './run/run-command.ts';
+import type { RunArguments } from './run/run-command.ts';
 import { parseInitJsonFlag, runInit } from './init/run-init.ts';
 import { createRealDoctorProbes } from './doctor/real-probes.ts';
 import { formatDoctorReport, runDoctor } from './doctor/doctor-command.ts';
@@ -14,13 +16,24 @@ import { ensureOpenCode } from './ux/preflight.ts';
 import type { EnsureOpenCodeOptions } from './ux/preflight.ts';
 import { createStyler } from './ux/style.ts';
 import type { Styler } from './ux/style.ts';
+import { createGhLatestFetcher } from './upgrade/latest-release.ts';
+import { LOU_REPO } from './upgrade/latest-release.ts';
+import { detectInstall } from './upgrade/install-detection.ts';
+import type { UpgradeDependencies } from './upgrade/upgrade-command.ts';
+import {
+  createShellInstallerRunner,
+  parseUpgradeArguments,
+  runUpgrade,
+} from './upgrade/upgrade-command.ts';
+import { DEFAULT_UPDATE_CHECK_INTERVAL_MS, maybeNotifyUpgrade } from './upgrade/upgrade-notice.ts';
 
 const USAGE = `Usage: lou <command> [args]
 
 Commands:
-  doctor Check the runtime prerequisites: lou doctor.
-  init   Read-only project onboarding report: lou init [--json].
-  run    Drive a GitHub issue to a pull request: lou run <issue-number> [--dry-run] [--model <name>] [--model-by-agent planner=...,developer=...] [--mcp name=command] [--max-cost-usd <usd>] [--max-time-min <minutes>].`;
+  doctor  Check the runtime prerequisites: lou doctor.
+  init    Read-only project onboarding report: lou init [--json].
+  run     Drive a GitHub issue to a pull request: lou run <issue-number> [--dry-run] [--model <name>] [--model-by-agent planner=...,developer=...] [--mcp name=command] [--max-cost-usd <usd>] [--max-time-min <minutes>].
+  upgrade Self-update to the latest Lou version: lou upgrade [<version>].`;
 
 const HELP_COMMANDS = new Set(['--help', '-h', 'help']);
 const VERSION_COMMANDS = new Set(['--version', '-v']);
@@ -35,6 +48,8 @@ export interface CliEnv {
   readonly style?: Styler;
   readonly ask?: (question: string) => Promise<string>;
   readonly openCodeInstaller?: OpenCodeInstaller;
+  readonly upgrade?: UpgradeDependencies;
+  readonly upgradeNotice?: () => Promise<void>;
 }
 
 type CommandHandler = (argv: readonly string[], env: CliEnv) => Promise<number>;
@@ -43,6 +58,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   init: handleInit,
   run: handleRun,
   doctor: handleDoctor,
+  upgrade: handleUpgrade,
 };
 
 function handleDoctor(argv: readonly string[], env: CliEnv): Promise<number> {
@@ -56,26 +72,46 @@ function handleDoctor(argv: readonly string[], env: CliEnv): Promise<number> {
   });
 }
 
-function handleInit(argv: readonly string[], env: CliEnv): Promise<number> {
+async function handleInit(argv: readonly string[], env: CliEnv): Promise<number> {
   const json = parseInitJsonFlag(argv);
   if (json === null) {
     env.err('Usage: lou init [--json]');
-    return Promise.resolve(1);
+    return 1;
+  }
+  if (env.upgradeNotice !== undefined) {
+    await env.upgradeNotice();
   }
   const style = resolveStyler(env);
-  return Promise.resolve()
-    .then(() => runInit({ reader: env.reader, root: env.cwd, json }))
-    .then((report) => {
-      if (!json) {
-        env.out(style.bold('◆ Lou · agent-driven development'));
-        env.out('');
-      }
-      env.out(report);
-      if (json) {
-        return 0;
-      }
-      return offerOpenCodeInstall(env).then(() => 0);
-    });
+  const report = await runInit({ reader: env.reader, root: env.cwd, json });
+  if (!json) {
+    env.out(style.bold('◆ Lou · agent-driven development'));
+    env.out('');
+  }
+  env.out(report);
+  if (json) {
+    return 0;
+  }
+  await offerOpenCodeInstall(env);
+  return 0;
+}
+
+function handleUpgrade(argv: readonly string[], env: CliEnv): Promise<number> {
+  const parsed = parseUpgradeArguments(argv.slice(1));
+  if (parsed === null) {
+    env.err('Usage: lou upgrade [<version>]');
+    return Promise.resolve(1);
+  }
+  if (parsed.help) {
+    env.out(
+      'Usage: lou upgrade [<version>]\n\nUpgrade Lou to the latest version (or a specific one, e.g. lou upgrade v0.2.0).',
+    );
+    return Promise.resolve(0);
+  }
+  return runUpgrade(parsed.version, {
+    ...(env.upgrade ?? defaultUpgradeDependencies()),
+    out: env.out,
+    style: resolveStyler(env),
+  });
 }
 
 async function offerOpenCodeInstall(env: CliEnv): Promise<void> {
@@ -110,9 +146,16 @@ async function handleRun(argv: readonly string[], env: CliEnv): Promise<number> 
     );
     return 1;
   }
+  if (env.upgradeNotice !== undefined) {
+    await env.upgradeNotice();
+  }
   if (!(await requireOpenCode(env))) {
     return 1;
   }
+  return executeRun(parsed, env);
+}
+
+function executeRun(parsed: RunArguments, env: CliEnv): Promise<number> {
   return runProduction({
     issueNumber: parsed.issueNumber,
     dryRun: parsed.dryRun,
@@ -153,6 +196,8 @@ export function main(argv?: readonly string[]): Promise<number> {
     cwd: process.cwd(),
     interactive: process.stdin.isTTY,
     style: createStyler(process.stdout.isTTY),
+    upgrade: defaultUpgradeDependencies(),
+    upgradeNotice: createUpgradeNotice(),
     out: (line: string) => process.stdout.write(`${line}\n`),
     err: (line: string) => process.stderr.write(`${line}\n`),
   });
@@ -191,6 +236,57 @@ function resolveStyler(env: CliEnv): Styler {
 
 function resolveInteractive(env: CliEnv): boolean {
   return env.interactive ?? false;
+}
+
+function defaultUpgradeDependencies(): UpgradeDependencies {
+  return {
+    scriptPath: process.argv[1] ?? '',
+    currentVersion: readVersion(),
+    platform: process.platform,
+    nodeBin: process.execPath,
+    repo: LOU_REPO,
+    latest: createGhLatestFetcher(),
+    runner: createShellInstallerRunner(),
+    detect: detectInstall,
+  };
+}
+
+function createUpgradeNotice(): () => Promise<void> {
+  const interactive = process.stdin.isTTY;
+  const out = (line: string) => process.stdout.write(`${line}\n`);
+  const style = createStyler(process.stdout.isTTY);
+  return () =>
+    maybeNotifyUpgrade({
+      currentVersion: readVersion(),
+      repo: LOU_REPO,
+      scriptPath: process.argv[1] ?? '',
+      interactive,
+      json: false,
+      isCi: process.env.CI !== undefined,
+      now: Date.now(),
+      checkEveryMs: DEFAULT_UPDATE_CHECK_INTERVAL_MS,
+      detect: detectInstall,
+      latest: createGhLatestFetcher(),
+      readTimestamp: readUpdateCheck,
+      writeTimestamp: writeUpdateCheck,
+      out,
+      style,
+    });
+}
+
+function readUpdateCheck(prefix: string): number | undefined {
+  try {
+    const raw = readFileSync(join(prefix, '.last-update-check'), 'utf8').trim();
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeUpdateCheck(prefix: string, timestamp: number): void {
+  mkdirSync(prefix, { recursive: true });
+  writeFileSync(join(prefix, '.last-update-check'), String(timestamp));
 }
 
 function readVersion(): string {

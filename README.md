@@ -256,8 +256,10 @@ irm https://raw.githubusercontent.com/Tiavina-Andriamamivony/lou-agents-orchestr
 
 Requirements: Node.js >= 22.7 (Node executes the TypeScript sources directly).
 Options: `--prefix <dir>`, `--version <tag|main>`, `--node <bin>`, `--quiet` (PowerShell:
-`-Prefix`, `-Version`, `-Node`, `-Quiet`). Re-run to upgrade; uninstall by removing the
-install directory and its PATH entry.
+`-Prefix`, `-Version`, `-Node`, `-Quiet`). To upgrade an existing install, run `lou upgrade`
+(or a specific version with `lou upgrade v0.2.0`); it preserves your prefix and node binary.
+`lou run` and `lou init` notify you when a new Lou version is available. Uninstall by
+removing the install directory and its PATH entry.
 
 To verify the whole install flow end-to-end against the current working tree (offline
 tarball, isolated HOME/PREFIX, version check, upgrade idempotence and `lou init`):
