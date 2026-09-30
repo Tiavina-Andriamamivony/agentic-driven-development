@@ -13,6 +13,7 @@ interface OpenCodeStepsOptions {
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
+  readonly constitution?: string;
 }
 
 interface RunSettings {
@@ -30,14 +31,17 @@ const TEST_PLAN_PATTERN = /^TEST_PLAN\s*:\s*(.+)$/im;
 const CHANGED_PATTERN = /^CHANGED\s*:\s*(.+)$/im;
 export function createOpenCodeSteps(options: OpenCodeStepsOptions): OrchestratorSteps {
   const { runtime, workspace, model, modelsByAgent, mcp } = options;
+  const constitution = options.constitution ?? '';
   const modelFor = (agent: string): string | undefined => modelsByAgent?.[agent] ?? model;
   return {
-    understand: (input) => understand(runtime, input, settingsFor(modelFor('planner'), mcp)),
+    understand: (input) =>
+      understand(runtime, input, constitution, settingsFor(modelFor('planner'), mcp)),
     designTests: (plan) =>
       designTests({
         runtime,
         workspace,
         plan,
+        constitution,
         settings: settingsFor(modelFor('test-designer'), mcp),
       }),
     writeTests: (plan) =>
@@ -47,6 +51,7 @@ export function createOpenCodeSteps(options: OpenCodeStepsOptions): Orchestrator
         plan,
         agent: 'test-writer',
         prompt: buildWriteTestsPrompt,
+        constitution,
         settings: settingsFor(modelFor('test-writer'), mcp),
       }),
     implement: (plan) =>
@@ -56,6 +61,7 @@ export function createOpenCodeSteps(options: OpenCodeStepsOptions): Orchestrator
         plan,
         agent: 'developer',
         prompt: buildImplementPrompt,
+        constitution,
         settings: settingsFor(modelFor('developer'), mcp),
       }),
   };
@@ -71,12 +77,13 @@ function settingsFor(model: string | undefined, mcp: RunSettings['mcp']): RunSet
 async function understand(
   runtime: AgentRuntime,
   input: UnderstandInput,
+  constitution: string,
   settings: RunSettings,
 ): Promise<Understanding> {
   const result = await runtime.run({
     runId: input.runId,
     agent: 'planner',
-    instructions: buildUnderstandPrompt(input),
+    instructions: buildUnderstandPrompt(input, constitution),
     workspace: input.workspace,
     ...withSettings(settings),
   });
@@ -88,14 +95,15 @@ async function changeNote(options: {
   readonly workspace: string;
   readonly plan: PlanDraft;
   readonly agent: string;
-  readonly prompt: (input: PlanDraft) => string;
+  readonly prompt: (input: PlanDraft, constitution: string) => string;
+  readonly constitution: string;
   readonly settings: RunSettings;
 }): Promise<ChangeNote> {
-  const { runtime, workspace, plan, agent, prompt, settings } = options;
+  const { runtime, workspace, plan, agent, prompt, constitution, settings } = options;
   const result = await runtime.run({
     runId: runIdFor(agent, plan),
     agent,
-    instructions: prompt(plan),
+    instructions: prompt(plan, constitution),
     workspace,
     ...withSettings(settings),
   });
@@ -109,12 +117,13 @@ async function designTests(options: {
   readonly runtime: AgentRuntime;
   readonly workspace: string;
   readonly plan: PlanDraft;
+  readonly constitution: string;
   readonly settings: RunSettings;
 }): Promise<{ readonly testPlan: string }> {
   const result = await options.runtime.run({
     runId: runIdFor('test-designer', options.plan),
     agent: 'test-designer',
-    instructions: buildDesignTestsPrompt(options.plan),
+    instructions: buildDesignTestsPrompt(options.plan, options.constitution),
     workspace: options.workspace,
     ...withSettings(options.settings),
   });
@@ -130,7 +139,11 @@ function withSettings(settings: RunSettings): RunSettings {
   };
 }
 
-function buildUnderstandPrompt(input: UnderstandInput): string {
+function constitutionSection(constitution: string): readonly string[] {
+  return constitution.length === 0 ? [] : ['', constitution];
+}
+
+function buildUnderstandPrompt(input: UnderstandInput, constitution: string): string {
   const description = input.issue.body.length > 0 ? input.issue.body : '(no description)';
   const feedback =
     input.feedback.length > 0 ? input.feedback.map((entry) => `- ${entry}`).join('\n') : '(none)';
@@ -143,6 +156,7 @@ function buildUnderstandPrompt(input: UnderstandInput): string {
     'Feedback from the human:',
     feedback,
     '',
+    ...constitutionSection(constitution),
     'Reply exactly with:',
     'SUMMARY: <one line>',
     'QUESTION: <one ambiguity>',
@@ -153,38 +167,41 @@ function buildUnderstandPrompt(input: UnderstandInput): string {
   ].join('\n');
 }
 
-function buildDesignTestsPrompt(plan: PlanDraft): string {
+function buildDesignTestsPrompt(plan: PlanDraft, constitution: string): string {
   return [
     'You are the Lou test designer. Design the acceptance tests for this plan.',
     '',
     `Plan title: ${plan.title}`,
     plan.steps.length > 0 ? plan.steps.map((step) => `- ${step}`).join('\n') : '(no steps)',
     '',
+    ...constitutionSection(constitution),
     'Reply exactly with:',
     'TEST_PLAN: <one test case>',
   ].join('\n');
 }
 
-function buildWriteTestsPrompt(plan: PlanDraft): string {
+function buildWriteTestsPrompt(plan: PlanDraft, constitution: string): string {
   return [
     'You are the Lou test writer. Write the tests described by the test plan.',
     '',
     `Plan title: ${plan.title}`,
     plan.steps.length > 0 ? plan.steps.map((step) => `- ${step}`).join('\n') : '(no steps)',
     '',
+    ...constitutionSection(constitution),
     'Reply exactly with:',
     'CHANGED: <changed file path>',
     'SUMMARY: <one line>',
   ].join('\n');
 }
 
-function buildImplementPrompt(plan: PlanDraft): string {
+function buildImplementPrompt(plan: PlanDraft, constitution: string): string {
   return [
     'You are the Lou developer. Implement each planned step, respecting the plan.',
     '',
     `Plan title: ${plan.title}`,
     plan.steps.length > 0 ? plan.steps.map((step) => `- ${step}`).join('\n') : '(no steps)',
     '',
+    ...constitutionSection(constitution),
     'Reply exactly with:',
     'CHANGED: <changed file path>',
     'SUMMARY: <one line>',

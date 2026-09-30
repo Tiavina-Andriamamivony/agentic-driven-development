@@ -18,6 +18,7 @@
     "@lou/budget": "workspace:*",
     "@lou/claude-code-runtime": "workspace:*",
     "@lou/command-runner": "workspace:*",
+    "@lou/constitution": "workspace:*",
     "@lou/git": "workspace:*",
     "@lou/github": "workspace:*",
     "@lou/opencode-runtime": "workspace:*",

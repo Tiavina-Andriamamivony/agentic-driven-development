@@ -71,6 +71,9 @@ importers:
       '@lou/command-runner':
         specifier: workspace:*
         version: link:../../packages/core/command-runner
+      '@lou/constitution':
+        specifier: workspace:*
+        version: link:../../packages/core/constitution
       '@lou/git':
         specifier: workspace:*
         version: link:../../packages/git

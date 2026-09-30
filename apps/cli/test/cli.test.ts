@@ -3,6 +3,7 @@ import { runCli } from '../src/cli';
 import type { DoctorProbes } from '../src/doctor/doctor-command';
 import { parseInitJsonFlag } from '../src/init/run-init';
 import type { RunsSnapshot, RunsStore } from '../src/runs/runs-list';
+import type { ConstitutionWriter } from '../src/constitution/constitution-command';
 import type { OpenCodeInstaller } from '../src/ux/opencode-installer';
 import { createMemoryReader } from './memory-reader';
 
@@ -13,6 +14,13 @@ interface Collector {
 
 function createCollector(): Collector {
   return { out: [], err: [] };
+}
+
+function fakeWriter(exists: boolean): ConstitutionWriter {
+  return {
+    load: () => Promise.resolve({ exists, articles: [], path: '/proj/.add/constitution.md' }),
+    save: (articles) => Promise.resolve(`/proj/.add/constitution.md (${articles.length})`),
+  };
 }
 
 function storeOf(snapshot: RunsSnapshot): RunsStore {
@@ -279,6 +287,47 @@ describe('runCli', () => {
     expect(code).toBe(0);
     expect(collector.out).toEqual(['#7  in progress']);
     expect(collector.err).toEqual([]);
+  });
+
+  it('creates the constitution through the cli', async () => {
+    const collector = createCollector();
+    const code = await runCli(['constitution', '--init'], {
+      reader: createMemoryReader({}),
+      constitutionWriter: fakeWriter(false),
+      cwd: '',
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(0);
+    expect(collector.out.join('\n')).toMatch(/Created/);
+  });
+
+  it('refuses --force without --init', async () => {
+    const collector = createCollector();
+    const code = await runCli(['constitution', '--force'], {
+      reader: createMemoryReader({}),
+      constitutionWriter: fakeWriter(false),
+      cwd: '',
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(1);
+    expect(collector.err.join('\n')).toMatch(/Usage: lou constitution/);
+  });
+
+  it('rejects an unknown constitution flag', async () => {
+    const collector = createCollector();
+    const code = await runCli(['constitution', '--wat'], {
+      reader: createMemoryReader({}),
+      constitutionWriter: fakeWriter(false),
+      cwd: '',
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(code).toBe(1);
   });
 
   it('lists runs as JSON with --json', async () => {

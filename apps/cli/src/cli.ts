@@ -30,6 +30,14 @@ import { AGENT_RUNTIME_NAMES, readAgentRuntimeName } from './run/agent-runtime-f
 import type { AgentRuntimeName } from './run/agent-runtime-factory.ts';
 import { createNodeRunsStore, runListRuns } from './runs/runs-list.ts';
 import type { RunsStore } from './runs/runs-list.ts';
+import {
+  createNodeConstitutionWriter,
+  runConstitution,
+} from './constitution/constitution-command.ts';
+import type {
+  ConstitutionOptions,
+  ConstitutionWriter,
+} from './constitution/constitution-command.ts';
 
 const RUNTIME_FLAG = '--runtime';
 
@@ -40,6 +48,7 @@ Commands:
   init    Read-only project onboarding report: lou init [--json].
   run     Drive one or more GitHub issues to a pull request: lou run <issue-number> [<issue-number> ...] [--dry-run] [--runtime opencode|claude] [--model <name>] [--model-by-agent planner=...,developer=...] [--mcp name=command] [--max-cost-usd <usd>] [--max-time-min <minutes>] [--max-concurrency <n>].
   runs    List finished and in-flight runs: lou runs [--json].
+  constitution  Show or create the project constitution: lou constitution [--init] [--force] [--json].
   upgrade Self-update to the latest Lou version: lou upgrade [<version>].`;
 
 const HELP_COMMANDS = new Set(['--help', '-h', 'help']);
@@ -58,6 +67,7 @@ export interface CliEnv {
   readonly upgrade?: UpgradeDependencies;
   readonly upgradeNotice?: () => Promise<void>;
   readonly runsStore?: RunsStore;
+  readonly constitutionWriter?: ConstitutionWriter;
 }
 
 type CommandHandler = (argv: readonly string[], env: CliEnv) => Promise<number>;
@@ -68,6 +78,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   doctor: handleDoctor,
   upgrade: handleUpgrade,
   runs: handleRuns,
+  constitution: handleConstitution,
 };
 
 function handleDoctor(argv: readonly string[], env: CliEnv): Promise<number> {
@@ -104,6 +115,35 @@ function handleRuns(argv: readonly string[], env: CliEnv): Promise<number> {
     json,
     out: env.out,
   });
+}
+
+function handleConstitution(argv: readonly string[], env: CliEnv): Promise<number> {
+  const options = parseConstitutionArguments(argv);
+  if (options === null) {
+    env.err('Usage: lou constitution [--init] [--force] [--json]');
+    return Promise.resolve(1);
+  }
+  return runConstitution(
+    env.constitutionWriter ?? createNodeConstitutionWriter(env.cwd),
+    options,
+    env.out,
+  );
+}
+
+function parseConstitutionArguments(argv: readonly string[]): ConstitutionOptions | null {
+  const flags = argv.slice(1);
+  const known = ['--init', '--force', '--json'];
+  if (flags.some((flag) => !known.includes(flag))) {
+    return null;
+  }
+  if (flags.includes('--force') && !flags.includes('--init')) {
+    return null;
+  }
+  return {
+    init: flags.includes('--init'),
+    force: flags.includes('--force'),
+    json: flags.includes('--json'),
+  };
 }
 
 async function handleInit(argv: readonly string[], env: CliEnv): Promise<number> {

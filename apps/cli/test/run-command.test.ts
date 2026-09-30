@@ -93,6 +93,7 @@ function buildEnv(
   const out: string[] = [];
   const env: RunEnvironment = {
     issueNumber: issue.number,
+    root: '/proj',
     workspace: '/work',
     github: github.github,
     git: git.git,
@@ -155,6 +156,7 @@ describe('runTicket', () => {
     const out: string[] = [];
     const env: RunEnvironment = {
       issueNumber: 1,
+      root: '/proj',
       workspace: '/work',
       github: failing,
       git: git.git,
@@ -288,6 +290,7 @@ describe('runTicket in dry-run', () => {
     const out: string[] = [];
     const env: RunEnvironment = {
       issueNumber: ISSUE.number,
+      root: '/proj',
       workspace: '/work',
       github: github.github,
       git: git.git,
@@ -328,6 +331,7 @@ describe('runTicket in dry-run', () => {
     const runtime = createFakeRuntime([resultFor(withQuestion), resultFor(PLANNER_STDOUT)]);
     const env: RunEnvironment = {
       issueNumber: ISSUE.number,
+      root: '/proj',
       workspace: '/work',
       github: createGitHubSpy(ISSUE).github,
       git: createGitSpy().git,
@@ -354,6 +358,7 @@ describe('runTicket in dry-run', () => {
     const runtime = createFakeRuntime([resultFor(PLANNER_STDOUT)]);
     const env: RunEnvironment = {
       issueNumber: ISSUE.number,
+      root: '/proj',
       workspace: '/work',
       github: createGitHubSpy(ISSUE).github,
       git: createGitSpy().git,
