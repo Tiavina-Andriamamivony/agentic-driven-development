@@ -65,9 +65,10 @@ LOU_DEMO_ISSUE=<your-issue> bash demos/record-demo.sh
 ## Try it in three commands
 
 ```bash
-lou init   # read-only onboarding: stack, docs, CI, git conventions
-lou run 12 # drive issue #12 all the way to an approved pull request
-lou runs   # what finished, what is still running
+lou init                    # read-only onboarding: stack, docs, CI, git conventions
+lou constitution --init     # write the 12 default project rules to .add/constitution.md
+lou run 12                  # drive issue #12 all the way to an approved pull request
+lou runs                    # what finished, what is still running
 ```
 
 Install in one line:
@@ -159,7 +160,9 @@ BLOCKED`, mapped onto the workflow commands.
 - `@lou/audit` — append-only JSON-lines audit log, store-stamped timestamps, plus a
   per-run summary.
 - `@lou/constitution` — the project's persistent rules (default 12-rule template,
-  `.add/constitution.md`), parsed and validated.
+  `.add/constitution.md`), parsed and validated. Seeded on request with
+  `lou constitution --init`, read by every agent on every run, ignored with a visible warning
+  when the file is invalid.
 
 Everything ships test-first, zero-warning lint, strict typecheck, dead-code analysis, and
 a green CI on Node 22 and 24. `main` is protected.
@@ -271,7 +274,11 @@ green, which is why it exists.
 **Still not covered** — what an agent does _inside_ its own CLI session. `opencode run` and
 `claude -p` execute their own tools; Lou gates the invocation, not the shell commands the model
 decides to run inside it. Confining that needs an OS-level sandbox, which is not implemented.
-`@lou/constitution` is also still unwired: agents never read the project constitution.
+
+The constitution _is_ honoured: `lou run` reads `.add/constitution.md` and puts its articles in
+front of the planner, the test designer, the test writer, the developer and the reviewer. An
+invalid file is reported and ignored rather than silently dropped, and a run with no constitution
+file simply proceeds without one.
 
 The safety story that is real today is therefore: the bounded state machine, the explicit human
 approval gates, the audit trail, the policy gate and workspace confinement on every command Lou

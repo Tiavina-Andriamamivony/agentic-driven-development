@@ -15,6 +15,8 @@ import {
 } from './agent-runtime-factory.ts';
 import type { AgentRuntimeName } from './agent-runtime-factory.ts';
 import { createSandboxedRunner } from './sandboxed-runner.ts';
+import { formatConstitution, loadConstitution, withConstitution } from './constitution.ts';
+import type { Article } from '@lou/constitution';
 import { AGENT_ROLE, GITHUB_ROLE, GIT_ROLE, TESTS_ROLE } from '@lou/policy-engine';
 import type { AgentRuntime } from '@lou/agent-runtime';
 import { Orchestrator } from '@lou/orchestrator';
@@ -47,6 +49,7 @@ const STREAMED_EVENTS: ReadonlySet<string> = new Set([
 
 export interface RunEnvironment {
   readonly issueNumber: number;
+  readonly root: string;
   readonly workspace: string;
   readonly github: GitHubAdapter;
   readonly git: GitAdapter;
@@ -508,6 +511,7 @@ export function buildRunEnvironment(request: RunTicketRequest): RunEnvironment {
   const auditFile = join(options.cwd, '.lou', 'runs', `run-${issueNumber}.jsonl`);
   return {
     issueNumber,
+    root: options.cwd,
     workspace,
     ...buildAdapters(workspace, auditFile, options, wiring),
     conventions: 'conventional commits',
@@ -557,16 +561,47 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     return 1;
   }
   const runtime = boundedRuntime(env);
+  const constitution = await loadConstitution(env.root, env.out);
   const steps = createOpenCodeSteps({
     runtime,
     workspace: env.workspace,
+    constitution: formatConstitution(constitution),
     ...agentSettings(env),
   });
   if (env.dryRun) {
     return runDryRun(issue, env, steps);
   }
   const startedAt = new Date().toISOString();
-  const orchestrator = new Orchestrator({
+  const orchestrator = buildOrchestrator({
+    env,
+    issue,
+    runtime,
+    steps,
+    constitution,
+  });
+  const outcome = await orchestrator.run();
+  if (env.summarize !== undefined) {
+    await env.summarize({
+      issueNumber: issue.number,
+      status: outcome.status,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}),
+      ...(outcome.pullRequest !== undefined ? { pullRequestUrl: outcome.pullRequest.url } : {}),
+    });
+  }
+  return report(outcome, env.out);
+}
+
+function buildOrchestrator(input: {
+  readonly env: RunEnvironment;
+  readonly issue: GitHubIssue;
+  readonly runtime: AgentRuntime;
+  readonly steps: OrchestratorSteps;
+  readonly constitution: readonly Article[];
+}): Orchestrator {
+  const { env, issue, runtime, steps, constitution } = input;
+  return new Orchestrator({
     runId: `run-${issue.number}`,
     issue,
     workspace: env.workspace,
@@ -581,20 +616,8 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     git: env.git,
     github: env.github,
     audit: withStreaming(env.audit, env.out),
-    conventions: env.conventions,
+    conventions: withConstitution(env.conventions, constitution),
   });
-  const outcome = await orchestrator.run();
-  if (env.summarize !== undefined) {
-    await env.summarize({
-      issueNumber: issue.number,
-      status: outcome.status,
-      startedAt,
-      finishedAt: new Date().toISOString(),
-      ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}),
-      ...(outcome.pullRequest !== undefined ? { pullRequestUrl: outcome.pullRequest.url } : {}),
-    });
-  }
-  return report(outcome, env.out);
 }
 
 async function runDryRun(
