@@ -313,6 +313,81 @@ describe('the real run wiring', () => {
     SLOW,
   );
 
+  it('shows the whole run as it happens', async () => {
+    await runWithRealAdapters();
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('lou run · ticket #1 ·'),
+        expect.stringMatching(/· planner finished/),
+        expect.stringContaining('branch feature/'),
+        expect.stringMatching(/tests test-first/),
+        expect.stringMatching(/tests verification/),
+        expect.stringMatching(/· test-designer finished/),
+        expect.stringMatching(/· test-writer finished/),
+        expect.stringMatching(/· developer finished/),
+        expect.stringContaining('✔ review approved'),
+        expect.stringMatching(/· commit /),
+        expect.stringContaining('· pushed'),
+        expect.stringMatching(/✔ pull request #\d+/),
+      ]),
+    );
+    expect(lines.filter((line) => line === '✔ you approved')).toHaveLength(2);
+    expect(lines.filter((line) => /files changed$/.test(line))).toHaveLength(1);
+  });
+
+  it('animates the wait on a terminal without scrolling a single line', async () => {
+    const frames: string[] = [];
+    seedPackageJson('node -e "process.exit(0)"');
+    const env = buildRunEnvironment({
+      options: {
+        issueNumbers: [1],
+        cwd: dir,
+        out: (line) => lines.push(line),
+        dryRun: false,
+        runtime: 'opencode',
+      },
+      issueNumber: 1,
+      workspace: dir,
+      many: false,
+      wiring: {
+        github: createGitHubSpy(ISSUE).github,
+        runtime: createEditingRuntime(dir),
+        ask: () => Promise.resolve('yes'),
+        isTty: true,
+        rawOut: (text) => frames.push(text),
+      },
+    });
+
+    await runTicket(env);
+
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames.every((frame) => frame.startsWith('\r'))).toBe(true);
+    expect(frames.some((frame) => frame.includes('\n'))).toBe(false);
+    expect(frames.some((frame) => /planner|developer|review/.test(frame))).toBe(true);
+    expect(lines.every((line) => !line.includes('\r'))).toBe(true);
+    expect(lines).toContain('· planner finished in 0s');
+  });
+
+  it('shows the progress in order, not as an unordered dump', async () => {
+    await runWithRealAdapters();
+
+    const steps = lines.filter((line) =>
+      /planner finished|branch feature|tests test-first|review approved|pushed|pull request/.test(
+        line,
+      ),
+    );
+
+    expect(steps).toEqual([
+      expect.stringMatching(/· planner finished/),
+      expect.stringContaining('branch feature/'),
+      expect.stringMatching(/tests test-first/),
+      expect.stringContaining('✔ review approved'),
+      expect.stringContaining('· pushed'),
+      expect.stringMatching(/✔ pull request #\d+/),
+    ]);
+  });
+
   it('runs no command at all when the policy denies it', () => {
     const { runner, calls } = recordingRunner();
     const sandboxed = createSandboxedRunner(dir, 'agent', runner);

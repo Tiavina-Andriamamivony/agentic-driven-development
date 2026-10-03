@@ -132,14 +132,15 @@ export class Orchestrator {
     return handler();
   }
 
-  private async intake(): Promise<OrchestratorOutcome | null> {
-    await this.audit.record(this.event('agent_started', { agent: 'planner' }));
+  private intake(): Promise<OrchestratorOutcome | null> {
     this.apply(COMMANDS.START_DISCOVERY);
-    return null;
+    return Promise.resolve(null);
   }
 
   private async discover(): Promise<OrchestratorOutcome | null> {
-    this.understanding = await this.steps.understand(this.understandInput());
+    this.understanding = await this.runAgent('planner', () =>
+      this.steps.understand(this.understandInput()),
+    );
     await this.audit.record(this.event('command_executed', { tool: 'planner.understand' }));
     this.apply(COMMANDS.FINISH_DISCOVERY);
     return null;
@@ -158,7 +159,9 @@ export class Orchestrator {
 
   private async proposePlan(): Promise<OrchestratorOutcome | null> {
     if (!sameFeedback(this.lastPlannedFeedback, this.feedback)) {
-      this.understanding = await this.steps.understand(this.understandInput());
+      this.understanding = await this.runAgent('planner', () =>
+        this.steps.understand(this.understandInput()),
+      );
     }
     this.lastPlannedFeedback = this.feedback;
     await this.audit.record(this.event('command_executed', { tool: 'planner.propose' }));
@@ -180,15 +183,21 @@ export class Orchestrator {
 
   private async designTests(): Promise<OrchestratorOutcome | null> {
     await this.git.createBranch(this.plan.branchName);
-    await this.audit.record(this.event('tool_called', { tool: 'git.createBranch', risk: 'low' }));
-    const design = await this.steps.designTests(this.plan);
+    await this.audit.record(
+      this.event('tool_called', {
+        tool: 'git.createBranch',
+        risk: 'low',
+        target: this.plan.branchName,
+      }),
+    );
+    const design = await this.runAgent('test-designer', () => this.steps.designTests(this.plan));
     this.testReport = `designed tests: ${design.testPlan}`;
     this.apply(COMMANDS.TESTS_DESIGNED);
     return null;
   }
 
   private async writeTests(): Promise<OrchestratorOutcome | null> {
-    const note = await this.steps.writeTests(this.plan);
+    const note = await this.runAgent('test-writer', () => this.steps.writeTests(this.plan));
     await this.recordChanges(note);
     this.apply(COMMANDS.TESTS_COMPLETE);
     return null;
@@ -201,7 +210,7 @@ export class Orchestrator {
   }
 
   private async implement(): Promise<OrchestratorOutcome | null> {
-    const note = await this.steps.implement(this.plan);
+    const note = await this.runAgent('developer', () => this.steps.implement(this.plan));
     this.implementation = note;
     await this.recordChanges(note);
     this.apply(COMMANDS.IMPLEMENTATION_COMPLETE);
@@ -278,6 +287,18 @@ export class Orchestrator {
     const pullRequest = await this.github.createPullRequest({ title: this.plan.title, body });
     await this.audit.record(this.event('pr_created', { target: String(pullRequest.number) }));
     return { status: 'pr-created', finalPhase: this.workflow.phase, pullRequest };
+  }
+
+  private async runAgent<T>(agent: string, work: () => Promise<T>): Promise<T> {
+    await this.audit.record(this.event('agent_started', { agent }));
+    try {
+      const value = await work();
+      await this.audit.record(this.event('agent_finished', { agent, result: 'success' }));
+      return value;
+    } catch (error) {
+      await this.audit.record(this.event('agent_finished', { agent, result: 'failure' }));
+      throw error;
+    }
   }
 
   private async runTests(kind: string): Promise<boolean> {
