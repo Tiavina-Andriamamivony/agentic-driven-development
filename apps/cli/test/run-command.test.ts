@@ -204,7 +204,8 @@ describe('runTicket', () => {
     expect(code).toBe(0);
     expect(asked.some((question) => question.includes('Approve plan'))).toBe(true);
     expect(asked.some((question) => question.includes('Approve review'))).toBe(true);
-    expect(out.join('\n')).toContain('Plan gate');
+    expect(out.join('\n')).toContain('▸ PLAN GATE');
+    expect(out.join('\n')).toContain('▸ REVIEW GATE');
   });
 
   it('routes the configured model to every agent run', async () => {

@@ -1,11 +1,16 @@
 import type { ApprovalDecision, ApprovalRequest, HumanKeeper } from '@lou/orchestrator';
+import type { Styler } from '../ux/style.ts';
+import { createStyler } from '../ux/style.ts';
+import { gateLines } from './trace-render.ts';
 
 interface TerminalKeeperOptions {
   readonly ask: (question: string) => Promise<string>;
   readonly out: (line: string) => void;
+  readonly style?: Styler;
 }
 
 export function createTerminalKeeper(options: TerminalKeeperOptions): HumanKeeper {
+  const style = options.style ?? createStyler(false);
   return {
     async askClarifications(questions: readonly string[]): Promise<readonly string[]> {
       const answers: string[] = [];
@@ -15,10 +20,14 @@ export function createTerminalKeeper(options: TerminalKeeperOptions): HumanKeepe
       return answers;
     },
     async decide(request: ApprovalRequest): Promise<ApprovalDecision> {
-      options.out('');
-      options.out(`${request.kind === 'plan' ? 'Plan' : 'Review'} gate`);
-      options.out(request.subject);
-      options.out(request.details);
+      for (const line of gateLines({
+        kind: request.kind,
+        subject: request.subject,
+        details: request.details,
+        style,
+      })) {
+        options.out(line);
+      }
       const answer = await options.ask(`Approve ${request.kind}? [y/N] `);
       return { approved: isApproval(answer) };
     },

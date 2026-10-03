@@ -220,4 +220,33 @@ describe('BudgetedAgentRuntime', () => {
     });
     await expect(runtime.interrupt('r')).resolves.toBeUndefined();
   });
+  it('passes the live output callback through to the wrapped runtime', async () => {
+    let received: AgentRunInput | undefined;
+    const runtime = new BudgetedAgentRuntime({
+      inner: recordingRuntime((input) => {
+        received = input;
+      }),
+      budget: new RunBudget({ maxCostUsd: 1 }),
+    });
+    const onOutput = (): void => undefined;
+
+    await runtime.run({ ...INPUT, onOutput });
+
+    expect(received?.onOutput).toBe(onOutput);
+  });
 });
+
+function recordingRuntime(capture: (input: AgentRunInput) => void): AgentRuntime {
+  return {
+    run(input: AgentRunInput): Promise<AgentRunResult> {
+      capture(input);
+      return Promise.resolve(okResult());
+    },
+    getStatus(runId: string) {
+      return Promise.resolve({ runId, running: false, finished: true });
+    },
+    interrupt() {
+      return Promise.resolve();
+    },
+  };
+}

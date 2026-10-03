@@ -42,6 +42,7 @@ import { createTerminalKeeper } from './terminal-keeper.ts';
 import { createRunTrace } from './run-trace.ts';
 import type { RunTrace } from './run-trace.ts';
 import { createStyler } from '../ux/style.ts';
+import type { Styler } from '../ux/style.ts';
 
 export interface RunEnvironment {
   readonly issueNumber: number;
@@ -102,6 +103,11 @@ export interface RunArguments {
   readonly runtime?: AgentRuntimeName;
 }
 
+const DEFAULT_COLUMNS = 80;
+
+function terminalColumns(): number {
+  return process.stdout.columns || DEFAULT_COLUMNS;
+}
 const DRY_RUN_FLAG = '--dry-run';
 const RUNTIME_FLAG = '--runtime';
 const MODEL_FLAG = '--model';
@@ -564,13 +570,17 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
   }
   const runtime = boundedRuntime(env);
   const constitution = await loadConstitution(env.root, env.out);
+  const style = createStyler(env.isTty ?? process.stdout.isTTY);
+  const trace = startTrace(env, issue, style);
   const steps = createOpenCodeSteps({
     runtime,
     workspace: env.workspace,
     constitution: formatConstitution(constitution),
+    onOutput: (chunk) => {
+      trace.think(chunk);
+    },
     ...agentSettings(env),
   });
-  const trace = startTrace(env, issue);
   if (env.dryRun) {
     return runDryRun(issue, env, steps, trace);
   }
@@ -612,7 +622,11 @@ function buildOrchestrator(input: {
     workspace: env.workspace,
     workflow: new Workflow(),
     steps,
-    keeper: createTerminalKeeper({ ask: env.ask, out: env.out }),
+    keeper: createTerminalKeeper({
+      ask: env.ask,
+      out: env.out,
+      style: createStyler(env.isTty ?? process.stdout.isTTY),
+    }),
     reviewer: new ReviewerAgent({
       runtime,
       ...agentSettings(env),
@@ -631,7 +645,11 @@ async function runDryRun(
   steps: OrchestratorSteps,
   trace: RunTrace,
 ): Promise<number> {
-  const keeper: HumanKeeper = createTerminalKeeper({ ask: env.ask, out: env.out });
+  const keeper: HumanKeeper = createTerminalKeeper({
+    ask: env.ask,
+    out: env.out,
+    style: createStyler(env.isTty ?? process.stdout.isTTY),
+  });
   try {
     let understanding = await trace.work('planner', () =>
       steps.understand(understandInput(issue, env, [])),
@@ -649,7 +667,7 @@ async function runDryRun(
   }
 }
 
-function startTrace(env: RunEnvironment, issue: GitHubIssue): RunTrace {
+function startTrace(env: RunEnvironment, issue: GitHubIssue, style: Styler): RunTrace {
   const isTty = env.isTty ?? process.stdout.isTTY;
   const rawOut = env.rawOut ?? ((text: string) => process.stdout.write(text));
   const trace = createRunTrace({
@@ -659,9 +677,14 @@ function startTrace(env: RunEnvironment, issue: GitHubIssue): RunTrace {
     },
     isTty,
     now: () => Date.now(),
-    style: createStyler(isTty),
+    columns: terminalColumns,
+    style,
   });
-  trace.begin({ issueNumber: issue.number, title: issue.title });
+  trace.begin({
+    issueNumber: issue.number,
+    title: issue.title,
+    workspace: env.workspace,
+  });
   return trace;
 }
 
@@ -704,8 +727,6 @@ function printPlan(plan: PlanDraft, out: (line: string) => void): void {
 async function readIssue(env: RunEnvironment): Promise<GitHubIssue | null> {
   try {
     const issue = await env.github.getIssue(env.issueNumber);
-    env.out(`Ticket #${issue.number} — ${issue.title}`);
-    env.out(`Workspace ${env.workspace}`);
     return issue;
   } catch (error) {
     env.out(`Cannot fetch issue #${env.issueNumber}: ${errorMessage(error)}`);

@@ -36,6 +36,7 @@ export class OpenCodeRuntime implements AgentRuntime {
         signal: controller.signal,
         timeoutMs: this.timeoutMs,
         ...(input.mcp !== undefined ? { env: this.mcpEnv(input.mcp) } : {}),
+        ...(input.onOutput !== undefined ? { onStdout: input.onOutput } : {}),
       });
       this.statuses.set(
         input.runId,

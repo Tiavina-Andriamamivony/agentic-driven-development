@@ -1,123 +1,151 @@
 import type { AuditEventPayload, AuditEventType } from '@lou/audit';
+import { humanDuration } from './trace-render.ts';
+import type { TraceTone } from './trace-render.ts';
 
-export type TraceTone = 'info' | 'good' | 'bad';
+export type { TraceTone };
 
 export type TraceStep =
-  | { readonly kind: 'line'; readonly text: string; readonly tone: TraceTone }
+  | { readonly kind: 'section'; readonly phase: string }
+  | { readonly kind: 'note'; readonly text: string; readonly tone: TraceTone }
   | { readonly kind: 'open'; readonly label: string }
-  | { readonly kind: 'close'; readonly text: string; readonly tone: TraceTone }
+  | {
+      readonly kind: 'close';
+      readonly label: string;
+      readonly detail: string;
+      readonly tone: TraceTone;
+    }
   | { readonly kind: 'quiet' };
 
 interface TraceContext {
   readonly busySince: number | undefined;
   readonly now: number;
+  readonly phase: string | undefined;
+  readonly afterCode: boolean;
 }
 
 type Handler = (payload: AuditEventPayload, context: TraceContext) => TraceStep;
 
 const QUIET: TraceStep = { kind: 'quiet' };
+const TESTS = 'tests';
+const VERIFY = 'verify';
 
-export function humanDuration(ms: number): string {
-  const seconds = Math.max(0, Math.round(ms / 1000));
-  if (seconds < 60) {
-    return `${seconds}s`;
+const AGENT_PHASES: Readonly<Record<string, string>> = {
+  planner: 'plan',
+  'test-designer': 'tests',
+  'test-writer': 'tests',
+  developer: 'code',
+  reviewer: 'review',
+};
+
+const TOOL_PHASES: Readonly<Record<string, string>> = {
+  'git.createBranch': 'branch',
+  'git.stage': 'push',
+};
+
+const EVENT_PHASES: Readonly<Partial<Record<AuditEventType, string>>> = {
+  review_started: 'review',
+  git_commit: 'push',
+  git_push: 'push',
+  pr_created: 'pull request',
+  human_approval: 'approval',
+  human_rejection: 'approval',
+  tool_denied: 'policy',
+};
+
+function phaseOf(payload: AuditEventPayload, context: TraceContext): string | undefined {
+  const agent = payload.agent;
+  if (agent !== undefined && AGENT_PHASES[agent] !== undefined) {
+    return AGENT_PHASES[agent];
   }
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+  const tool = payload.tool;
+  if (tool !== undefined && TOOL_PHASES[tool] !== undefined) {
+    return TOOL_PHASES[tool];
+  }
+  if (isTestEvent(payload.event)) {
+    return context.afterCode ? VERIFY : TESTS;
+  }
+  return EVENT_PHASES[payload.event];
+}
+
+function isTestEvent(event: AuditEventType): boolean {
+  return event === 'test_started' || event === 'test_finished';
 }
 
 function elapsed(context: TraceContext): string {
   return context.busySince === undefined ? '' : humanDuration(context.now - context.busySince);
 }
 
-function suffix(duration: string): string {
-  return duration === '' ? '' : ` in ${duration}`;
+function withDuration(text: string, context: TraceContext): string {
+  const duration = elapsed(context);
+  return duration === '' ? text : `${text} ${duration}`;
 }
 
-function name(payload: AuditEventPayload): string {
-  return payload.agent ?? 'agent';
+function note(text: string, tone: TraceTone = 'info'): TraceStep {
+  return { kind: 'note', text, tone };
 }
 
-function deny(target: string | undefined, fallback: string): string {
-  return target === undefined ? fallback : `${fallback} — ${target}`;
+function close(label: string, detail: string, tone: TraceTone): TraceStep {
+  return { kind: 'close', label, detail, tone };
 }
 
-function withTarget(text: string, target: string | undefined): string {
-  return target === undefined ? text : `${text} ${target}`;
-}
-
-function stage(payload: AuditEventPayload, context: TraceContext): string {
-  return `tests ${payload.target ?? ''}`.trim().concat(suffix(elapsed(context)));
+function target(payload: AuditEventPayload, fallback: string): string {
+  return payload.target === undefined ? fallback : `${fallback} ${payload.target}`;
 }
 
 function agentFinished(payload: AuditEventPayload, context: TraceContext): TraceStep {
-  const who = name(payload);
+  const who = payload.agent ?? 'agent';
   if (payload.result === 'failure') {
-    return { kind: 'close', text: `${who} failed`, tone: 'bad' };
+    return close(who, '', 'bad');
   }
-  return { kind: 'close', text: `${who} finished${suffix(elapsed(context))}`, tone: 'info' };
+  return close(who, elapsed(context), 'info');
 }
 
 function reviewFinished(payload: AuditEventPayload): TraceStep {
   const approved = payload.result === 'success';
-  return {
-    kind: 'close',
-    text: approved ? 'review approved' : 'review requested changes',
-    tone: approved ? 'good' : 'bad',
-  };
+  const detail = approved ? 'approved' : 'changes requested';
+  return close('review', detail, approved ? 'good' : 'bad');
 }
 
 function testsFinished(payload: AuditEventPayload, context: TraceContext): TraceStep {
   const passed = payload.result === 'success';
-  return {
-    kind: 'close',
-    text: stage(payload, context),
-    tone: passed ? 'good' : 'bad',
-  };
-}
-
-function fromCommit(payload: AuditEventPayload): TraceStep {
-  return line(withTarget('commit', payload.target ?? 'recorded'));
-}
-
-function opened(label: string): TraceStep {
-  return { kind: 'open', label };
-}
-
-function line(text: string, tone: TraceTone = 'info'): TraceStep {
-  return { kind: 'line', text, tone };
+  const verdict = `${payload.target ?? ''} ${passed ? 'passed' : 'failed'}`.trim();
+  return close(TESTS, withDuration(verdict, context), passed ? 'good' : 'bad');
 }
 
 function fromTool(payload: AuditEventPayload): TraceStep {
   if (payload.tool === 'git.createBranch') {
-    return line(withTarget('branch', payload.target ?? 'created'));
+    return note(target(payload, 'branch'));
   }
   if (payload.tool === 'git.stage') {
-    return line(`staged ${payload.target ?? '0'} files`);
+    return note(`staged ${payload.target ?? '0'} files`);
   }
   return QUIET;
 }
 
 const HANDLERS: Readonly<Record<AuditEventType, Handler>> = {
-  agent_started: (payload) => opened(name(payload)),
+  agent_started: (payload) => ({ kind: 'open', label: payload.agent ?? 'agent' }),
   agent_finished: agentFinished,
   tool_called: fromTool,
-  tool_denied: (payload) =>
-    line(deny(payload.target, `denied ${payload.tool ?? 'command'}`), 'bad'),
+  tool_denied: (payload) => note(target(payload, `denied ${payload.tool ?? 'command'}`), 'bad'),
   permission_requested: () => QUIET,
-  human_approval: () => line('you approved', 'good'),
-  human_rejection: () => line('you rejected', 'bad'),
+  human_approval: () => note('you approved', 'good'),
+  human_rejection: () => note('you rejected', 'bad'),
   file_changed: () => QUIET,
   command_executed: () => QUIET,
-  test_started: (payload) => opened(stage(payload, { busySince: undefined, now: 0 })),
+  test_started: (payload) => ({ kind: 'open', label: target(payload, TESTS) }),
   test_finished: testsFinished,
-  review_started: () => opened('review'),
+  review_started: () => ({ kind: 'open', label: 'review' }),
   review_finished: reviewFinished,
-  git_commit: fromCommit,
-  git_push: () => line('pushed'),
-  pr_created: (payload) => line(`pull request #${payload.target ?? '?'}`, 'good'),
+  git_commit: (payload) => note(target(payload, 'commit')),
+  git_push: () => note('pushed'),
+  pr_created: (payload) => note(`pull request #${payload.target ?? '?'}`, 'good'),
 };
 
-export function translate(payload: AuditEventPayload, context: TraceContext): TraceStep {
-  return HANDLERS[payload.event](payload, context);
+export function translate(payload: AuditEventPayload, context: TraceContext): readonly TraceStep[] {
+  const step = HANDLERS[payload.event](payload, context);
+  const phase = phaseOf(payload, context);
+  if (phase === undefined || phase === context.phase || step.kind === 'quiet') {
+    return [step];
+  }
+  return [{ kind: 'section', phase }, step];
 }

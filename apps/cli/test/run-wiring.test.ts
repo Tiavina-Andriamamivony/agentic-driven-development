@@ -11,6 +11,8 @@ import { createSandboxedRunner } from '../src/run/sandboxed-runner.ts';
 import { SandboxedCommandRunner } from '@lou/sandbox';
 import { createGitHubSpy, resultFor } from './fakes.ts';
 
+const ESC = String.fromCharCode(27);
+
 const SLOW = 30_000;
 
 const ISSUE: GitHubIssue = {
@@ -65,6 +67,30 @@ function createEditingRuntime(workspace: string, seen?: AgentRunInput[]): AgentR
       return Promise.resolve();
     },
   };
+}
+
+function createStreamingRuntime(reply: string, narration: readonly string[]): AgentRuntime {
+  return {
+    async run(input: AgentRunInput): Promise<AgentRunResult> {
+      for (const line of narration) {
+        input.onOutput?.(`${line}\n`);
+        await sleep(5);
+      }
+      return { ...resultFor(reply), runId: input.runId };
+    },
+    getStatus(runId: string): Promise<AgentStatus> {
+      return Promise.resolve({ runId, running: true, finished: true });
+    },
+    interrupt(): Promise<void> {
+      return Promise.resolve();
+    },
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function applyReportedEdits(workspace: string, stdout: string): void {
@@ -318,22 +344,56 @@ describe('the real run wiring', () => {
 
     expect(lines).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('lou run · ticket #1 ·'),
-        expect.stringMatching(/· planner finished/),
+        expect.stringContaining('lou run #1 · Add reset password'),
+        expect.stringContaining('workspace'),
+        expect.stringContaining('▸ PLAN'),
+        expect.stringMatching(/✔ planner · \d+s/),
         expect.stringContaining('branch feature/'),
-        expect.stringMatching(/tests test-first/),
-        expect.stringMatching(/tests verification/),
-        expect.stringMatching(/· test-designer finished/),
-        expect.stringMatching(/· test-writer finished/),
-        expect.stringMatching(/· developer finished/),
-        expect.stringContaining('✔ review approved'),
+        expect.stringMatching(/✔ test-designer · \d+s/),
+        expect.stringMatching(/✔ test-writer · \d+s/),
+        expect.stringMatching(/✔ tests · test-first passed/),
+        expect.stringMatching(/✔ developer · \d+s/),
+        expect.stringMatching(/✔ tests · verification passed/),
+        expect.stringContaining('✔ review · approved'),
         expect.stringMatching(/· commit /),
         expect.stringContaining('· pushed'),
         expect.stringMatching(/✔ pull request #\d+/),
       ]),
     );
-    expect(lines.filter((line) => line === '✔ you approved')).toHaveLength(2);
+    expect(lines.filter((line) => line === '    ✔ you approved')).toHaveLength(2);
     expect(lines.filter((line) => /files changed$/.test(line))).toHaveLength(1);
+  });
+
+  it('shows what the agent is doing while it thinks', async () => {
+    const frames: string[] = [];
+    seedPackageJson('node -e "process.exit(0)"');
+    const env = buildRunEnvironment({
+      options: {
+        issueNumbers: [1],
+        cwd: dir,
+        out: (line) => lines.push(line),
+        dryRun: false,
+        runtime: 'opencode',
+      },
+      issueNumber: 1,
+      workspace: dir,
+      many: false,
+      wiring: {
+        github: createGitHubSpy(ISSUE).github,
+        runtime: createStreamingRuntime(REPLIES[0] ?? '', [
+          'reading the ticket',
+          'grepping the auth module',
+        ]),
+        ask: () => Promise.resolve('yes'),
+        isTty: true,
+        rawOut: (text) => frames.push(text),
+      },
+    });
+
+    await runTicket(env);
+
+    expect(frames.join('')).toContain('reading the ticket');
+    expect(frames.join('')).toContain('grepping the auth module');
   });
 
   it('animates the wait on a terminal without scrolling a single line', async () => {
@@ -366,23 +426,24 @@ describe('the real run wiring', () => {
     expect(frames.some((frame) => frame.includes('\n'))).toBe(false);
     expect(frames.some((frame) => /planner|developer|review/.test(frame))).toBe(true);
     expect(lines.every((line) => !line.includes('\r'))).toBe(true);
-    expect(lines).toContain('· planner finished in 0s');
+    const plain = lines.map((line) => line.replace(new RegExp(`${ESC}\\[[0-9;]*m`, 'g'), ''));
+    expect(plain).toContain('    ✔ planner · 0s');
   });
 
   it('shows the progress in order, not as an unordered dump', async () => {
     await runWithRealAdapters();
 
     const steps = lines.filter((line) =>
-      /planner finished|branch feature|tests test-first|review approved|pushed|pull request/.test(
+      /✔ planner ·|branch feature|✔ tests · test-first|✔ review · approved|· pushed|pull request/.test(
         line,
       ),
     );
 
     expect(steps).toEqual([
-      expect.stringMatching(/· planner finished/),
+      expect.stringMatching(/✔ planner ·/),
       expect.stringContaining('branch feature/'),
-      expect.stringMatching(/tests test-first/),
-      expect.stringContaining('✔ review approved'),
+      expect.stringMatching(/✔ tests · test-first/),
+      expect.stringContaining('✔ review · approved'),
       expect.stringContaining('· pushed'),
       expect.stringMatching(/✔ pull request #\d+/),
     ]);

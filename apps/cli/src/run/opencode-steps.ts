@@ -1,4 +1,5 @@
 import type { AgentRuntime } from '@lou/agent-runtime';
+import type { OutputHandler } from '@lou/command-runner';
 import type {
   ChangeNote,
   OrchestratorSteps,
@@ -14,11 +15,13 @@ interface OpenCodeStepsOptions {
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
   readonly constitution?: string;
+  readonly onOutput?: OutputHandler;
 }
 
 interface RunSettings {
   readonly model?: string;
   readonly mcp?: Readonly<Record<string, string>>;
+  readonly onOutput?: OutputHandler;
 }
 
 const SUMMARY_PATTERN = /^SUMMARY\s*:\s*(.+)$/im;
@@ -30,19 +33,19 @@ const STEP_PATTERN = /^PLAN_STEP\s*:\s*(.+)$/im;
 const TEST_PLAN_PATTERN = /^TEST_PLAN\s*:\s*(.+)$/im;
 const CHANGED_PATTERN = /^CHANGED\s*:\s*(.+)$/im;
 export function createOpenCodeSteps(options: OpenCodeStepsOptions): OrchestratorSteps {
-  const { runtime, workspace, model, modelsByAgent, mcp } = options;
+  const { runtime, workspace, model, modelsByAgent, mcp, onOutput } = options;
   const constitution = options.constitution ?? '';
   const modelFor = (agent: string): string | undefined => modelsByAgent?.[agent] ?? model;
   return {
     understand: (input) =>
-      understand(runtime, input, constitution, settingsFor(modelFor('planner'), mcp)),
+      understand(runtime, input, constitution, settingsFor(modelFor('planner'), mcp, onOutput)),
     designTests: (plan) =>
       designTests({
         runtime,
         workspace,
         plan,
         constitution,
-        settings: settingsFor(modelFor('test-designer'), mcp),
+        settings: settingsFor(modelFor('test-designer'), mcp, onOutput),
       }),
     writeTests: (plan) =>
       changeNote({
@@ -52,7 +55,7 @@ export function createOpenCodeSteps(options: OpenCodeStepsOptions): Orchestrator
         agent: 'test-writer',
         prompt: buildWriteTestsPrompt,
         constitution,
-        settings: settingsFor(modelFor('test-writer'), mcp),
+        settings: settingsFor(modelFor('test-writer'), mcp, onOutput),
       }),
     implement: (plan) =>
       changeNote({
@@ -62,15 +65,20 @@ export function createOpenCodeSteps(options: OpenCodeStepsOptions): Orchestrator
         agent: 'developer',
         prompt: buildImplementPrompt,
         constitution,
-        settings: settingsFor(modelFor('developer'), mcp),
+        settings: settingsFor(modelFor('developer'), mcp, onOutput),
       }),
   };
 }
 
-function settingsFor(model: string | undefined, mcp: RunSettings['mcp']): RunSettings {
+function settingsFor(
+  model: string | undefined,
+  mcp: RunSettings['mcp'],
+  onOutput: RunSettings['onOutput'],
+): RunSettings {
   return {
     ...(model !== undefined ? { model } : {}),
     ...(mcp !== undefined ? { mcp } : {}),
+    ...(onOutput !== undefined ? { onOutput } : {}),
   };
 }
 
@@ -136,6 +144,7 @@ function withSettings(settings: RunSettings): RunSettings {
   return {
     ...(settings.model !== undefined ? { model: settings.model } : {}),
     ...(settings.mcp !== undefined ? { mcp: settings.mcp } : {}),
+    ...(settings.onOutput !== undefined ? { onOutput: settings.onOutput } : {}),
   };
 }
 

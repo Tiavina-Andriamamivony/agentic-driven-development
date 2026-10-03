@@ -19,6 +19,14 @@ const JSON_OUTPUT = JSON.stringify({
   usage: { input_tokens: 1200, output_tokens: 340 },
 });
 
+function streamResult(): string {
+  return (
+    '{"type":"system","subtype":"status","status":"requesting"}\n' +
+    '{"type":"result","is_error":false,"total_cost_usd":0.25,' +
+    '"usage":{"input_tokens":10,"output_tokens":4}}\n'
+  );
+}
+
 function result(stdout = JSON_OUTPUT, interrupted = false) {
   return { exitCode: interrupted ? -1 : 0, stdout, stderr: '', interrupted };
 }
@@ -334,5 +342,85 @@ describe('ClaudeCodeRuntime', () => {
 
     await pending;
     expect(runner.calls[0]?.options.timeoutMs).toBe(1234);
+  });
+  it('forwards live agent activity to the caller as stdout arrives', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+    const chunks: string[] = [];
+
+    const pending = runtime.run({ ...INPUT, onOutput: (chunk) => chunks.push(chunk) });
+    runner.emitStdout('{"type":"system","subtype":"status","status":"thinking"}\n');
+    runner.complete(result(streamResult()));
+    await pending;
+
+    expect(chunks).toEqual(['thinking', 'requesting']);
+    expect(runner.calls[0]?.args).toContain('stream-json');
+    expect(runner.calls[0]?.args).toContain('--verbose');
+  });
+
+  it('asks Claude for the realtime stream only when the caller wants it live', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(result());
+    await pending;
+
+    expect(runner.calls[0]?.args).toContain('json');
+    expect(runner.calls[0]?.args).not.toContain('--verbose');
+  });
+
+  it('never shows a hook payload to the caller', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+    const chunks: string[] = [];
+    const hook =
+      '{"type":"system","subtype":"hook_response","output":"' + 'x'.repeat(2000) + '"}\n';
+
+    const pending = runtime.run({ ...INPUT, onOutput: (chunk) => chunks.push(chunk) });
+    runner.emitStdout(hook);
+    runner.complete(result(streamResult()));
+    await pending;
+
+    expect(chunks.join('')).not.toContain('hook_response');
+    expect(chunks.every((chunk) => chunk.length <= 60)).toBe(true);
+  });
+
+  it('reads the cost and tokens out of the stream envelope', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+
+    const pending = runtime.run({ ...INPUT, onOutput: () => undefined });
+    runner.complete(result(streamResult()));
+    const finished = await pending;
+
+    expect(finished.usage?.promptTokens).toBe(10);
+    expect(finished.usage?.costUsd).toBe(0.25);
+  });
+
+  it('still fails the run when the stream reports an error envelope', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+
+    const pending = runtime.run({ ...INPUT, onOutput: () => undefined });
+    runner.complete(
+      result(
+        '{"type":"result","is_error":true,"errors":["quota exhausted"],' +
+          '"total_cost_usd":0,"usage":{"input_tokens":3,"output_tokens":0}}\n',
+      ),
+    );
+
+    await expect(pending).rejects.toThrow('quota exhausted');
+  });
+
+  it('omits the live callback entirely when the caller does not ask for it', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(result());
+    await pending;
+
+    expect(runner.calls[0]?.options.onStdout).toBeUndefined();
   });
 });

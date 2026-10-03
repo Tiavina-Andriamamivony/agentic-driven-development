@@ -13,11 +13,15 @@ export class RunningCommand {
   ) {
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
+    const onStdout = options.onStdout;
+    const onStderr = options.onStderr;
     child.stdout?.on('data', (chunk: string) => {
       this.stdoutChunks.push(chunk);
+      onStdout?.(chunk);
     });
     child.stderr?.on('data', (chunk: string) => {
       this.stderrChunks.push(chunk);
+      onStderr?.(chunk);
     });
     if (options.timeoutMs !== undefined) {
       this.timer = setTimeout(() => {

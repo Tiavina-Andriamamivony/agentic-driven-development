@@ -144,4 +144,28 @@ describe('OpenCodeRuntime', () => {
 
     await expect(runtime.run({ ...INPUT, runId: '' })).rejects.toThrow('runId');
   });
+  it('forwards live agent output to the caller as stdout arrives', async () => {
+    const runner = new FakeRunner();
+    const runtime = new OpenCodeRuntime({ runner });
+    const chunks: string[] = [];
+
+    const pending = runtime.run({ ...INPUT, onOutput: (chunk) => chunks.push(chunk) });
+    runner.emitStdout('reading ');
+    runner.emitStdout('files');
+    runner.complete(SUCCESS);
+    await pending;
+
+    expect(chunks).toEqual(['reading ', 'files']);
+  });
+
+  it('omits the live callback entirely when the caller does not ask for it', async () => {
+    const runner = new FakeRunner();
+    const runtime = new OpenCodeRuntime({ runner });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(SUCCESS);
+    await pending;
+
+    expect(runner.calls[0]?.options.onStdout).toBeUndefined();
+  });
 });
