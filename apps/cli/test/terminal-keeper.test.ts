@@ -21,7 +21,7 @@ describe('createTerminalKeeper', () => {
     });
 
     expect(decision).toEqual({ approved: true });
-    expect(out.join('\n')).toContain('Plan gate');
+    expect(out.join('\n')).toContain('▸ PLAN GATE');
     expect(out.join('\n')).toContain('plan details');
   });
 
@@ -40,7 +40,7 @@ describe('createTerminalKeeper', () => {
     });
 
     expect(decision).toEqual({ approved: false });
-    expect(out.join('\n')).toContain('Review gate');
+    expect(out.join('\n')).toContain('▸ REVIEW GATE');
     expect(out.join('\n')).toContain('review details');
   });
 

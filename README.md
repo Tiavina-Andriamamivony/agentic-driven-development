@@ -135,26 +135,49 @@ gets its own isolated git worktree, so batch runs cannot contaminate one another
 A run takes minutes because agents take minutes. Lou never goes quiet while it waits:
 
 ```text
-lou run · ticket #12 · Add password reset
-Workspace /repo/.lou/worktrees/issue-12
-⠹ planner · 2m 14s
-· planner finished in 2m 16s
-✔ you approved
-· branch feature/password-reset
-· test-writer finished in 51s
-✔ tests test-first in 12s
-· developer finished in 3m 04s
-✔ review approved
-· commit feat(auth): add password reset
-· pushed
-✔ pull request #42
+  ▍ lou run #12 · Add password reset
+  ⎿ workspace /repo/.lou/worktrees/issue-12
+
+  ▸ PLAN
+    ⠹ planner · reading the auth module             2m 14s
+    ⠹ planner · grepping routes                     2m 14s
+    ✔ planner · 2m 16s
+      ⎿ plan the reset endpoint
+
+  ▸ TESTS
+    ✔ test-designer · 41s
+      ⎿ 3 acceptance cases
+    ✔ tests · test-first passed                     51s
+
+  ▸ CODE
+    ✔ developer · 3m 04s
+      ⎿ added the reset endpoint and specs
+    · 2 files changed
+
+  ▸ REVIEW
+    ✔ review · approved                              58s
+
+  ▸ PUSH
+    · commit feat(auth): add password reset
+    · pushed
+
+  ▸ PULL REQUEST
+    ✔ pull request #42
+    · 1 file changed
 ```
 
 On a terminal the wait is a single line that rewrites itself, so a four-minute agent
-call shows a spinner and an elapsed timer instead of an empty screen. Every agent, test
-run, commit and gate is announced as it happens, and the audit trail carries the same
-events. Piped into a file or CI, the spinner becomes one plain line every 30 seconds so
-the log never goes silent either.
+call shows a spinner, what the agent is doing right now, and an elapsed timer instead
+of an empty screen. Each phase gets its own section, each agent its own colour, and the
+timer only appears once the wait is long enough to be worth reading. The last thing the
+agent said stays on the spinner line, then lands on its own indented line once the agent
+finishes. Every agent, test run, commit and gate is announced as it happens, and the audit
+trail carries the same events. Piped into a file or CI, the spinner becomes one plain line
+every 30 seconds so the log never goes silent either.
+
+Claude is asked for its realtime event stream when live output is requested, so the
+spinner follows the session rather than the answer. Only short status events reach the
+screen — session hooks can carry kilobytes of payload and are never printed.
 
 ## What's shipped
 
@@ -314,8 +337,13 @@ word.
 **Never validated** — no real agent run has completed. Agent output parsing
 (`CHANGED:`, `SUMMARY:`, `VERDICT:`) has only ever been fed the exact format the parser
 expects. The Claude Code runtime's own verdict is parsed and enforced (#53), but no successful
-`claude` call has been observed from a development environment — every one timed out. The
-first real run on a real network is what settles it.
+`claude` call has been observed from a development environment — the only calls captured
+returned `401 authentication_failed` (`apiKeySource: none`), so their event streams ended in
+an aborted envelope rather than a verdict. The realtime envelope itself was read off a real
+run: `--output-format stream-json` emits JSON Lines and closes with a `type: "result"` object
+carrying `is_error`, `total_cost_usd` and `usage`, and it refuses to start without `--verbose`.
+Cost and token accounting are parsed from that envelope and the failure path is exercised by
+tests. The first successful call on a real network is what settles the verdict.
 
 ## Roadmap
 

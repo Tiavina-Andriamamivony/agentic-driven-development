@@ -10,6 +10,7 @@ export class FakeRunner implements CommandRunner {
   readonly calls: CommandCall[] = [];
   private readonly resolvers: Array<(value: CommandResult) => void> = [];
   private readonly rejecters: Array<(reason: unknown) => void> = [];
+  private readonly pending: CommandRunOptions[] = [];
 
   run(
     command: string,
@@ -17,13 +18,23 @@ export class FakeRunner implements CommandRunner {
     options: CommandRunOptions,
   ): Promise<CommandResult> {
     this.calls.push({ command, args, options });
+    this.pending.push(options);
     return new Promise<CommandResult>((resolve, reject) => {
       this.resolvers.push(resolve);
       this.rejecters.push(reject);
     });
   }
 
+  emitStdout(chunk: string): void {
+    this.pending[0]?.onStdout?.(chunk);
+  }
+
+  emitStderr(chunk: string): void {
+    this.pending[0]?.onStderr?.(chunk);
+  }
+
   complete(result: CommandResult): void {
+    this.emitStdout(result.stdout);
     this.resolveAll((resolve) => {
       resolve(result);
     });

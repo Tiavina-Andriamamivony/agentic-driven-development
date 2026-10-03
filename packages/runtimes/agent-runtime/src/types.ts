@@ -1,4 +1,4 @@
-import type { CommandResult } from '@lou/command-runner';
+import type { CommandResult, OutputHandler } from '@lou/command-runner';
 
 export interface TokenUsage {
   readonly promptTokens: number;
@@ -13,6 +13,7 @@ export interface AgentRunInput {
   readonly mcp?: Readonly<Record<string, string>>;
   readonly instructions: string;
   readonly workspace: string;
+  readonly onOutput?: OutputHandler;
 }
 
 export interface AgentRunResult extends CommandResult {

@@ -5,12 +5,16 @@ export interface CommandResult {
   readonly interrupted: boolean;
 }
 
+export type OutputHandler = (chunk: string) => void;
+
 export interface CommandRunOptions {
   readonly cwd: string;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   readonly env?: Readonly<Record<string, string>>;
   readonly stdin?: string;
+  readonly onStdout?: OutputHandler;
+  readonly onStderr?: OutputHandler;
 }
 
 export interface CommandRunner {

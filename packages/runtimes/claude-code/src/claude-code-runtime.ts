@@ -3,6 +3,7 @@ import type { CommandRunner } from '@lou/command-runner';
 import { AgentRunFailedError } from '@lou/agent-runtime';
 import type { AgentRuntime } from '@lou/agent-runtime';
 import type { AgentRunInput, AgentRunResult, AgentStatus, TokenUsage } from '@lou/agent-runtime';
+import { ClaudeStreamReader } from './claude-stream.ts';
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 const PERMISSION_MODE = 'acceptEdits';
@@ -67,18 +68,26 @@ export class ClaudeCodeRuntime implements AgentRuntime {
     this.controllers.set(input.runId, controller);
     this.statuses.set(input.runId, { runId: input.runId, running: true, finished: false });
     try {
-      const result = await this.runner.run(this.binary, this.buildArgs(input), {
-        cwd: input.workspace,
-        signal: controller.signal,
-        timeoutMs: this.timeoutMs,
-        stdin: input.instructions,
-      });
+      const reader = new ClaudeStreamReader();
+      const onOutput = input.onOutput;
+      const result = await this.runner.run(
+        this.binary,
+        this.buildArgs(input, onOutput !== undefined),
+        {
+          cwd: input.workspace,
+          signal: controller.signal,
+          timeoutMs: this.timeoutMs,
+          stdin: input.instructions,
+          ...this.liveOptions(onOutput, reader),
+        },
+      );
       this.statuses.set(
         input.runId,
         this.toFinished(input.runId, result.exitCode, result.interrupted),
       );
-      this.assertSucceeded(input.runId, result.stdout);
-      return { runId: input.runId, ...result, ...this.usage(result.stdout) };
+      const payload = reader.result() ?? this.parsePayload(result.stdout);
+      this.assertSucceeded(input.runId, payload);
+      return { runId: input.runId, ...result, ...this.usage(payload) };
     } catch (error) {
       if (!(error instanceof AgentRunFailedError)) {
         this.statuses.set(input.runId, { runId: input.runId, running: false, finished: false });
@@ -98,8 +107,27 @@ export class ClaudeCodeRuntime implements AgentRuntime {
     return Promise.resolve();
   }
 
-  private buildArgs(input: AgentRunInput): string[] {
-    const args = ['-p', '--output-format', 'json', '--permission-mode', PERMISSION_MODE];
+  private liveOptions(
+    onOutput: AgentRunInput['onOutput'],
+    reader: ClaudeStreamReader,
+  ): { onStdout?: (chunk: string) => void } {
+    if (onOutput === undefined) {
+      return {};
+    }
+    return {
+      onStdout: (chunk: string) => {
+        for (const activity of reader.push(chunk)) {
+          onOutput(activity);
+        }
+      },
+    };
+  }
+
+  private buildArgs(input: AgentRunInput, streaming: boolean): string[] {
+    const args = streaming
+      ? ['-p', '--output-format', 'stream-json', '--verbose']
+      : ['-p', '--output-format', 'json'];
+    args.push('--permission-mode', PERMISSION_MODE);
     if (input.model !== undefined) {
       args.push('--model', input.model);
     }
@@ -117,8 +145,7 @@ export class ClaudeCodeRuntime implements AgentRuntime {
     return JSON.stringify({ mcpServers });
   }
 
-  private usage(stdout: string): { usage?: TokenUsage } {
-    const payload = this.parsePayload(stdout);
+  private usage(payload: Record<string, unknown> | null): { usage?: TokenUsage } {
     if (payload === null) {
       return {};
     }
@@ -166,8 +193,7 @@ export class ClaudeCodeRuntime implements AgentRuntime {
     };
   }
 
-  private assertSucceeded(runId: string, stdout: string): void {
-    const payload = this.parsePayload(stdout);
+  private assertSucceeded(runId: string, payload: Record<string, unknown> | null): void {
     if (payload === null || payload['is_error'] !== true) {
       return;
     }
