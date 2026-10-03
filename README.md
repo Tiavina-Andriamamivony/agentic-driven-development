@@ -130,6 +130,32 @@ every decision is recorded in an append-only audit trail that survives the run.
 Multiple tickets (`lou run 12 13`) run concurrently (`--max-concurrency`) — and each run
 gets its own isolated git worktree, so batch runs cannot contaminate one another.
 
+### Watching a run
+
+A run takes minutes because agents take minutes. Lou never goes quiet while it waits:
+
+```text
+lou run · ticket #12 · Add password reset
+Workspace /repo/.lou/worktrees/issue-12
+⠹ planner · 2m 14s
+· planner finished in 2m 16s
+✔ you approved
+· branch feature/password-reset
+· test-writer finished in 51s
+✔ tests test-first in 12s
+· developer finished in 3m 04s
+✔ review approved
+· commit feat(auth): add password reset
+· pushed
+✔ pull request #42
+```
+
+On a terminal the wait is a single line that rewrites itself, so a four-minute agent
+call shows a spinner and an elapsed timer instead of an empty screen. Every agent, test
+run, commit and gate is announced as it happens, and the audit trail carries the same
+events. Piped into a file or CI, the spinner becomes one plain line every 30 seconds so
+the log never goes silent either.
+
 ## What's shipped
 
 `lou run` drives a GitHub issue to a pull request with human approval gates at the plan

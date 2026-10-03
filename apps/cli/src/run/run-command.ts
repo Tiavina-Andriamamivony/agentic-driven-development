@@ -39,13 +39,9 @@ import { createInterface } from 'node:readline/promises';
 import { createOpenCodeSteps } from './opencode-steps.ts';
 import { mapWithConcurrency } from './concurrency.ts';
 import { createTerminalKeeper } from './terminal-keeper.ts';
-
-const STREAMED_EVENTS: ReadonlySet<string> = new Set([
-  'human_approval',
-  'human_rejection',
-  'review_finished',
-  'pr_created',
-]);
+import { createRunTrace } from './run-trace.ts';
+import type { RunTrace } from './run-trace.ts';
+import { createStyler } from '../ux/style.ts';
 
 export interface RunEnvironment {
   readonly issueNumber: number;
@@ -59,6 +55,8 @@ export interface RunEnvironment {
   readonly conventions: string;
   readonly ask: (question: string) => Promise<string>;
   readonly out: (line: string) => void;
+  readonly isTty?: boolean;
+  readonly rawOut?: (text: string) => void;
   readonly dryRun: boolean;
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
@@ -456,6 +454,8 @@ interface RunTicketWiring {
   readonly audit?: AuditLog;
   readonly runtime?: AgentRuntime;
   readonly ask?: (question: string) => Promise<string>;
+  readonly isTty?: boolean;
+  readonly rawOut?: (text: string) => void;
 }
 
 interface RunTicketRequest {
@@ -520,6 +520,8 @@ export function buildRunEnvironment(request: RunTicketRequest): RunEnvironment {
       options.out(many ? `[#${issueNumber}] ${line}` : line);
     },
     dryRun: options.dryRun,
+    ...(wiring.isTty !== undefined ? { isTty: wiring.isTty } : {}),
+    ...(wiring.rawOut !== undefined ? { rawOut: wiring.rawOut } : {}),
     summarize: writeRunSummaryFile(options.cwd),
     ...agentSettings(options),
     ...(options.maxCostUsd !== undefined ? { maxCostUsd: options.maxCostUsd } : {}),
@@ -568,8 +570,9 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     constitution: formatConstitution(constitution),
     ...agentSettings(env),
   });
+  const trace = startTrace(env, issue);
   if (env.dryRun) {
-    return runDryRun(issue, env, steps);
+    return runDryRun(issue, env, steps, trace);
   }
   const startedAt = new Date().toISOString();
   const orchestrator = buildOrchestrator({
@@ -578,8 +581,9 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     runtime,
     steps,
     constitution,
+    trace,
   });
-  const outcome = await orchestrator.run();
+  const outcome = await tracedRun(orchestrator, trace);
   if (env.summarize !== undefined) {
     await env.summarize({
       issueNumber: issue.number,
@@ -599,6 +603,7 @@ function buildOrchestrator(input: {
   readonly runtime: AgentRuntime;
   readonly steps: OrchestratorSteps;
   readonly constitution: readonly Article[];
+  readonly trace: RunTrace;
 }): Orchestrator {
   const { env, issue, runtime, steps, constitution } = input;
   return new Orchestrator({
@@ -615,7 +620,7 @@ function buildOrchestrator(input: {
     tests: env.tests,
     git: env.git,
     github: env.github,
-    audit: withStreaming(env.audit, env.out),
+    audit: withTrace(env.audit, input.trace),
     conventions: withConstitution(env.conventions, constitution),
   });
 }
@@ -624,15 +629,51 @@ async function runDryRun(
   issue: GitHubIssue,
   env: RunEnvironment,
   steps: OrchestratorSteps,
+  trace: RunTrace,
 ): Promise<number> {
   const keeper: HumanKeeper = createTerminalKeeper({ ask: env.ask, out: env.out });
-  let understanding = await steps.understand(understandInput(issue, env, []));
-  if (understanding.questions.length > 0) {
-    const answers = await keeper.askClarifications(understanding.questions);
-    understanding = await steps.understand(understandInput(issue, env, answers));
+  try {
+    let understanding = await trace.work('planner', () =>
+      steps.understand(understandInput(issue, env, [])),
+    );
+    if (understanding.questions.length > 0) {
+      const answers = await keeper.askClarifications(understanding.questions);
+      understanding = await trace.work('planner', () =>
+        steps.understand(understandInput(issue, env, answers)),
+      );
+    }
+    printPlan(understanding.plan, env.out);
+    return 0;
+  } finally {
+    trace.close();
   }
-  printPlan(understanding.plan, env.out);
-  return 0;
+}
+
+function startTrace(env: RunEnvironment, issue: GitHubIssue): RunTrace {
+  const isTty = env.isTty ?? process.stdout.isTTY;
+  const rawOut = env.rawOut ?? ((text: string) => process.stdout.write(text));
+  const trace = createRunTrace({
+    out: env.out,
+    write: (text) => {
+      rawOut(text);
+    },
+    isTty,
+    now: () => Date.now(),
+    style: createStyler(isTty),
+  });
+  trace.begin({ issueNumber: issue.number, title: issue.title });
+  return trace;
+}
+
+async function tracedRun(
+  orchestrator: Orchestrator,
+  trace: RunTrace,
+): Promise<OrchestratorOutcome> {
+  try {
+    return await orchestrator.run();
+  } finally {
+    trace.close();
+  }
 }
 
 function understandInput(
@@ -664,6 +705,7 @@ async function readIssue(env: RunEnvironment): Promise<GitHubIssue | null> {
   try {
     const issue = await env.github.getIssue(env.issueNumber);
     env.out(`Ticket #${issue.number} — ${issue.title}`);
+    env.out(`Workspace ${env.workspace}`);
     return issue;
   } catch (error) {
     env.out(`Cannot fetch issue #${env.issueNumber}: ${errorMessage(error)}`);
@@ -671,12 +713,10 @@ async function readIssue(env: RunEnvironment): Promise<GitHubIssue | null> {
   }
 }
 
-function withStreaming(audit: AuditLog, out: (line: string) => void): AuditLog {
+function withTrace(audit: AuditLog, trace: RunTrace): AuditLog {
   return {
     record(payload: AuditEventPayload): Promise<void> {
-      if (STREAMED_EVENTS.has(payload.event)) {
-        out(`• ${payload.event}${payload.target !== undefined ? ` — ${payload.target}` : ''}`);
-      }
+      trace.event(payload);
       return audit.record(payload);
     },
     history: () => audit.history(),
