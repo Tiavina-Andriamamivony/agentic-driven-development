@@ -19,6 +19,7 @@ import {
   createGitHubSpy,
   createGitSpy,
   createTestRunner,
+  readyDoctorProbes,
   resultFor,
 } from './fakes';
 
@@ -98,6 +99,8 @@ function buildEnv(
     github: github.github,
     git: git.git,
     tests: tests.runner,
+    runtimeName: 'opencode',
+    preflightProbes: readyDoctorProbes(),
     audit: audit.log,
     runtime,
     conventions: 'conventional commits',
@@ -163,6 +166,8 @@ describe('runTicket', () => {
       tests: tests.runner,
       audit: audit.log,
       runtime,
+      runtimeName: 'opencode',
+      preflightProbes: readyDoctorProbes(),
       conventions: 'conventional commits',
       ask: () => Promise.resolve('y'),
       out: (line: string) => out.push(line),
@@ -298,6 +303,8 @@ describe('runTicket in dry-run', () => {
       tests: tests.runner,
       audit: audit.log,
       runtime,
+      runtimeName: 'opencode',
+      preflightProbes: readyDoctorProbes(),
       conventions: 'conventional commits',
       ask: () => Promise.resolve('y'),
       out: (line: string) => out.push(line),
@@ -339,6 +346,8 @@ describe('runTicket in dry-run', () => {
       tests: createTestRunner(true).runner,
       audit: createAuditSpy().log,
       runtime,
+      runtimeName: 'opencode',
+      preflightProbes: readyDoctorProbes(),
       conventions: 'conventional commits',
       ask: (question: string) => {
         answered.push(question);
@@ -366,6 +375,8 @@ describe('runTicket in dry-run', () => {
       tests: createTestRunner(true).runner,
       audit: createAuditSpy().log,
       runtime,
+      runtimeName: 'opencode',
+      preflightProbes: readyDoctorProbes(),
       conventions: 'conventional commits',
       ask: () => Promise.resolve('y'),
       out: () => undefined,

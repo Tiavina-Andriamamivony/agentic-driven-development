@@ -2,14 +2,23 @@ import type { AgentRunResult, AgentRuntime, AgentRunInput, AgentStatus } from '@
 import type { CommandResult, CommandRunner } from '@lou/command-runner';
 import type { GitHubIssue } from '@lou/github';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildRunEnvironment, runTicket } from '../src/run/run-command.ts';
 import { createSandboxedRunner } from '../src/run/sandboxed-runner.ts';
 import { SandboxedCommandRunner } from '@lou/sandbox';
-import { createGitHubSpy, resultFor } from './fakes.ts';
+import { createGitHubSpy, readyDoctorProbes, resultFor } from './fakes.ts';
+import type { DoctorProbes } from '../src/doctor/doctor-command.ts';
 
 const ESC = String.fromCharCode(27);
 
@@ -45,8 +54,11 @@ let lines: string[];
 const git = (args: string[]): string =>
   execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
 
-function seedPackageJson(testScript: string): void {
-  const manifest = { name: 'fixture', private: true, scripts: { test: testScript } };
+function seedPackageJson(testScript: string | null): void {
+  const manifest =
+    testScript === null
+      ? { name: 'fixture', private: true }
+      : { name: 'fixture', private: true, scripts: { test: testScript } };
   writeFileSync(join(dir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
@@ -74,6 +86,7 @@ function createStreamingRuntime(reply: string, narration: readonly string[]): Ag
     async run(input: AgentRunInput): Promise<AgentRunResult> {
       for (const line of narration) {
         input.onOutput?.(`${line}\n`);
+        input.onActivity?.({ kind: 'text', text: line });
         await sleep(5);
       }
       return { ...resultFor(reply), runId: input.runId };
@@ -147,8 +160,9 @@ function committedFiles(): string {
 }
 
 async function runWithRealAdapters(
-  testScript = 'node -e "process.exit(0)"',
+  testScript: string | null = 'node -e "process.exit(0)"',
   seen?: AgentRunInput[],
+  probes: DoctorProbes = readyDoctorProbes(),
 ): Promise<ReturnType<typeof createGitHubSpy>> {
   seedPackageJson(testScript);
   const github = createGitHubSpy(ISSUE);
@@ -167,6 +181,7 @@ async function runWithRealAdapters(
       github: github.github,
       runtime: createEditingRuntime(dir, seen),
       ask: () => Promise.resolve('yes'),
+      preflightProbes: probes,
     },
   });
   await runTicket(env);
@@ -319,6 +334,78 @@ describe('the real run wiring', () => {
   );
 
   it(
+    'refuses to start when the project has no test script',
+    async () => {
+      const seen: AgentRunInput[] = [];
+      const github = await runWithRealAdapters(null, seen);
+
+      expect(github.created).toHaveLength(0);
+      expect(seen).toHaveLength(0);
+      expect(lines.join('\n')).toContain('Preflight failed');
+      expect(lines.join('\n')).toContain('no "test" script in package.json');
+    },
+    SLOW,
+  );
+
+  it(
+    'stops before spending anything when gh is not authenticated',
+    async () => {
+      const seen: AgentRunInput[] = [];
+      const github = await runWithRealAdapters(undefined, seen, {
+        ...readyDoctorProbes(),
+        gitHubCli: () =>
+          Promise.resolve({
+            label: 'GitHub CLI',
+            ok: false,
+            detail: 'gh not found or not authenticated',
+          }),
+      });
+
+      expect(seen).toHaveLength(0);
+      expect(github.created).toHaveLength(0);
+      expect(lines.join('\n')).toContain('Preflight failed');
+      expect(lines.join('\n')).toContain('gh auth login');
+    },
+    SLOW,
+  );
+
+  it(
+    'prunes old run cycles and keeps the current one diagnosable',
+    async () => {
+      const runs = join(dir, '.lou', 'runs');
+      mkdirSync(runs, { recursive: true });
+      for (let stale = 2; stale <= 13; stale += 1) {
+        writeFileSync(join(runs, `run-${stale}.jsonl`), 'stale\n');
+      }
+      writeFileSync(join(runs, 'README.md'), 'not a run artifact\n');
+
+      await runWithRealAdapters();
+
+      expect(existsSync(join(runs, 'run-2.jsonl'))).toBe(false);
+      expect(existsSync(join(runs, 'run-3.jsonl'))).toBe(false);
+      expect(existsSync(join(runs, 'run-4.jsonl'))).toBe(true);
+      expect(existsSync(join(runs, 'run-13.jsonl'))).toBe(true);
+      expect(existsSync(join(runs, 'README.md'))).toBe(true);
+      expect(existsSync(join(runs, 'run-1.jsonl'))).toBe(true);
+      expect(lines.join('\n')).toContain('Cleaned up');
+    },
+    SLOW,
+  );
+
+  it(
+    'keeps the raw agent stream on disk and out of the pull request',
+    async () => {
+      await runWithRealAdapters();
+
+      const agents = join(dir, '.lou', 'runs', 'run-1', 'agents');
+      expect(existsSync(agents)).toBe(true);
+      expect(readdirSync(agents).length).toBeGreaterThan(0);
+      expect(committedFiles()).not.toContain('.lou');
+    },
+    SLOW,
+  );
+
+  it(
     'opens no pull request when the real test command fails',
     async () => {
       const github = await runWithRealAdapters('node -e "process.exit(1)"');
@@ -385,6 +472,7 @@ describe('the real run wiring', () => {
           'grepping the auth module',
         ]),
         ask: () => Promise.resolve('yes'),
+        preflightProbes: readyDoctorProbes(),
         isTty: true,
         rawOut: (text) => frames.push(text),
       },
@@ -414,6 +502,7 @@ describe('the real run wiring', () => {
         github: createGitHubSpy(ISSUE).github,
         runtime: createEditingRuntime(dir),
         ask: () => Promise.resolve('yes'),
+        preflightProbes: readyDoctorProbes(),
         isTty: true,
         rawOut: (text) => frames.push(text),
       },

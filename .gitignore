@@ -8,6 +8,7 @@ dist/
 coverage/
 
 # Runtime artifacts
+.lou/runs/
 .add/runs/
 *.tsbuildinfo
 
