@@ -67,6 +67,7 @@ export class Orchestrator {
   private implementation: ChangeNote = { changedFiles: [], summary: '(no implementation)' };
   private changedFiles: string[] = [];
   private testReport = '(no tests run)';
+  private testPlan = '';
   private reviewNote: ReviewNote | null = null;
 
   private readonly handlers: Readonly<
@@ -197,13 +198,16 @@ export class Orchestrator {
       }),
     );
     const design = await this.runAgent('test-designer', () => this.steps.designTests(this.plan));
+    this.testPlan = design.testPlan;
     this.testReport = `designed tests: ${design.testPlan}`;
     this.apply(COMMANDS.TESTS_DESIGNED);
     return null;
   }
 
   private async writeTests(): Promise<OrchestratorOutcome | null> {
-    const note = await this.runAgent('test-writer', () => this.steps.writeTests(this.plan));
+    const note = await this.runAgent('test-writer', () =>
+      this.steps.writeTests(this.plan, this.testPlan),
+    );
     await this.recordChanges(note);
     this.apply(COMMANDS.TESTS_COMPLETE);
     return null;

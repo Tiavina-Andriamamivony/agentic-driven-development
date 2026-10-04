@@ -334,15 +334,14 @@ describe('the real run wiring', () => {
   );
 
   it(
-    'refuses to start when the project has no test script',
+    'starts a project without a test script and tells the test agent to build one',
     async () => {
       const seen: AgentRunInput[] = [];
-      const github = await runWithRealAdapters(null, seen);
+      await runWithRealAdapters(null, seen);
 
-      expect(github.created).toHaveLength(0);
-      expect(seen).toHaveLength(0);
-      expect(lines.join('\n')).toContain('Preflight failed');
-      expect(lines.join('\n')).toContain('no "test" script in package.json');
+      expect(seen.length).toBeGreaterThan(0);
+      expect(lines.join('\n')).toContain('Preflight notes');
+      expect(lines.join('\n')).toContain('there is no harness yet');
     },
     SLOW,
   );
