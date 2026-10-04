@@ -202,13 +202,13 @@ describe('run trace steps', () => {
   });
 });
 
-describe('run trace live agent output', () => {
+describe('run trace live agent activity', () => {
   it('shows what the agent is doing while it thinks', () => {
     const { trace, frames } = harness({ isTty: true });
     trace.begin(TICKET);
     send(trace, { event: 'agent_started', agent: 'developer' });
 
-    trace.think('reading run-trace.ts\n');
+    trace.activity({ kind: 'text', text: 'reading run-trace.ts' });
 
     expect(frames.join('')).toContain('reading run-trace.ts');
   });
@@ -218,8 +218,8 @@ describe('run trace live agent output', () => {
     trace.begin(TICKET);
     send(trace, { event: 'agent_started', agent: 'developer' });
 
-    trace.think('reading files\n');
-    trace.think('writing tests\n');
+    trace.activity({ kind: 'text', text: 'reading files' });
+    trace.activity({ kind: 'text', text: 'writing tests' });
 
     expect(frames.join('')).toContain('writing tests');
   });
@@ -228,7 +228,7 @@ describe('run trace live agent output', () => {
     const { trace, frames } = harness({ isTty: true });
     trace.begin(TICKET);
 
-    trace.think('stray output\n');
+    trace.activity({ kind: 'text', text: 'stray output' });
 
     expect(frames).toHaveLength(0);
   });
@@ -238,7 +238,7 @@ describe('run trace live agent output', () => {
     trace.begin(TICKET);
     send(trace, { event: 'agent_started', agent: 'developer' });
 
-    trace.think('all done\nSUMMARY: added a reset flow\n');
+    trace.activity({ kind: 'text', text: 'SUMMARY: added a reset flow' });
     send(trace, { event: 'agent_finished', agent: 'developer', result: 'success' });
 
     expect(body()).toContain('      ⎿ added a reset flow');
@@ -251,7 +251,7 @@ describe('run trace live agent output', () => {
       trace.begin(TICKET);
       send(trace, { event: 'agent_started', agent: 'developer' });
 
-      trace.think('reading files\n');
+      trace.activity({ kind: 'text', text: 'reading files' });
       send(trace, { event: 'agent_finished', agent: 'developer', result: 'success' });
 
       expect(frames.join('')).toContain('reading files');
@@ -266,7 +266,7 @@ describe('run trace live agent output', () => {
     trace.begin(TICKET);
     send(trace, { event: 'agent_started', agent: 'developer' });
 
-    trace.think('\x1b[36mtool: read\x1b[0m\n');
+    trace.activity({ kind: 'text', text: '\x1b[36mtool: read\x1b[0m' });
 
     expect(frames.join('')).toContain('tool: read');
   });
@@ -413,5 +413,69 @@ describe('run trace work helper', () => {
     ).rejects.toThrow('no runtime');
 
     expect(body()).toEqual(['    ✖ planner · 0s']);
+  });
+});
+
+describe('run trace agent activity', () => {
+  it('shows the current thought on the live line', () => {
+    const { trace, body } = harness();
+    trace.begin(TICKET);
+    send(trace, { event: 'agent_started', agent: 'planner' });
+
+    trace.activity({ kind: 'thinking', text: 'the auth module matters here' });
+
+    expect(body().join('\n')).toContain('the auth module matters here');
+    expect(body()).toContain('  ▸ PLAN');
+  });
+
+  it('keeps one durable line per tool so the work is auditable', () => {
+    const { trace, body } = harness();
+    trace.begin(TICKET);
+    send(trace, { event: 'agent_started', agent: 'developer' });
+
+    trace.activity({ kind: 'tool', tool: 'read', detail: 'src/auth.ts', ok: true });
+    trace.activity({ kind: 'tool', tool: 'bash', detail: 'pnpm test', ok: false });
+
+    expect(body()).toContain('      ⎿ read src/auth.ts');
+    expect(body()).toContain('      ⎿ ✖ bash pnpm test');
+  });
+
+  it('reports thoughts, tools and tokens once the agent settles', () => {
+    const { trace, body } = harness();
+    trace.begin(TICKET);
+    send(trace, { event: 'agent_started', agent: 'developer' });
+
+    trace.activity({ kind: 'thinking', text: 'one' });
+    trace.activity({ kind: 'thinking', text: 'two' });
+    trace.activity({ kind: 'tool', tool: 'read', detail: 'a.ts', ok: true });
+    trace.activity({
+      kind: 'usage',
+      inputTokens: 20_000,
+      outputTokens: 1_100,
+      reasoningTokens: 400,
+      cachedTokens: 0,
+      costUsd: 0,
+    });
+    send(trace, { event: 'agent_finished', agent: 'developer', result: 'success' });
+
+    expect(body()).toContain('      ⎿ 2 thoughts · 1 tool · 21.1k tokens');
+  });
+
+  it('omits the stats line for a runtime that reports no activity', () => {
+    const { trace, body } = harness();
+    trace.begin(TICKET);
+    send(trace, { event: 'agent_started', agent: 'developer' });
+    send(trace, { event: 'agent_finished', agent: 'developer', result: 'success' });
+
+    expect(body().join('\n')).not.toContain('tokens');
+  });
+
+  it('ignores activity that arrives outside a running agent', () => {
+    const { trace, body } = harness();
+    trace.begin(TICKET);
+
+    trace.activity({ kind: 'tool', tool: 'read', detail: 'ghost.ts', ok: true });
+
+    expect(body().join('\n')).not.toContain('ghost.ts');
   });
 });

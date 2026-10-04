@@ -37,6 +37,20 @@ interface DetailInput {
   readonly style: Styler;
 }
 
+interface ToolLineInput {
+  readonly label: string;
+  readonly ok: boolean;
+  readonly style: Styler;
+}
+
+interface StatsInput {
+  readonly thoughts: number;
+  readonly tools: number;
+  readonly tokens: number;
+  readonly costUsd?: number;
+  readonly style: Styler;
+}
+
 interface GateInput {
   readonly kind: string;
   readonly subject: string;
@@ -100,6 +114,42 @@ export function countLabel(count: number, singular: string, plural: string): str
 
 export function detailLine(input: DetailInput): string {
   return `${DETAIL}${input.style.gray(`⎿ ${input.text}`)}`;
+}
+
+export function toolLine(input: ToolLineInput): string {
+  const label = input.style.gray(input.label);
+  const mark = input.ok ? '' : ` ${input.style.check(false)}`;
+  return `${DETAIL}⎿${mark} ${label}`;
+}
+
+export function statsLine(input: StatsInput): string {
+  const parts = [
+    countLabel(input.thoughts, 'thought', 'thoughts'),
+    countLabel(input.tools, 'tool', 'tools'),
+    `${formatTokens(input.tokens)} tokens`,
+  ];
+  if (input.costUsd !== undefined && input.costUsd > 0) {
+    parts.push(formatCost(input.costUsd));
+  }
+  return detailLine({ text: parts.join(` ${DOT} `), style: input.style });
+}
+
+export function hasActivity(stats: StatsInput): boolean {
+  return stats.thoughts > 0 || stats.tools > 0 || stats.tokens > 0;
+}
+
+function formatTokens(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    return `${(tokens / 1_000_000).toFixed(1)}M`;
+  }
+  if (tokens >= 1_000) {
+    return `${(tokens / 1_000).toFixed(1)}k`;
+  }
+  return String(tokens);
+}
+
+function formatCost(costUsd: number): string {
+  return `$${costUsd.toFixed(3)}`;
 }
 
 export function noteLine(input: NoteInput): string {

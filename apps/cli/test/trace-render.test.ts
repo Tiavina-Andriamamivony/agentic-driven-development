@@ -6,12 +6,15 @@ import {
   countLabel,
   detailLine,
   doneLine,
+  hasActivity,
   headerLines,
   humanDuration,
   liveLine,
   noteLine,
   promptLine,
   sectionLine,
+  statsLine,
+  toolLine,
 } from '../src/run/trace-render.ts';
 
 const style = createStyler(false);
@@ -176,5 +179,56 @@ describe('noteLine and promptLine', () => {
 
   it('renders a human question with a question mark', () => {
     expect(promptLine('Approve the plan?', style)).toContain('Approve the plan?');
+  });
+});
+
+describe('toolLine', () => {
+  it('renders a completed tool under the agent', () => {
+    expect(toolLine({ label: 'read src/auth.ts', ok: true, style: style })).toBe(
+      '      ⎿ read src/auth.ts',
+    );
+  });
+
+  it('marks a failed tool', () => {
+    expect(toolLine({ label: 'bash make', ok: false, style: style })).toBe('      ⎿ ✖ bash make');
+  });
+});
+
+describe('statsLine', () => {
+  it('counts thoughts, tools and tokens', () => {
+    expect(statsLine({ thoughts: 4, tools: 9, tokens: 24_100, style: style })).toBe(
+      '      ⎿ 4 thoughts · 9 tools · 24.1k tokens',
+    );
+  });
+
+  it('uses singular labels for a single item', () => {
+    expect(statsLine({ thoughts: 1, tools: 1, tokens: 12, style: style })).toBe(
+      '      ⎿ 1 thought · 1 tool · 12 tokens',
+    );
+  });
+
+  it('adds the cost only when the runtime reported one', () => {
+    expect(statsLine({ thoughts: 0, tools: 1, tokens: 10, costUsd: 0.5, style: style })).toBe(
+      '      ⎿ 0 thoughts · 1 tool · 10 tokens · $0.500',
+    );
+    expect(statsLine({ thoughts: 0, tools: 1, tokens: 10, costUsd: 0, style: style })).toBe(
+      '      ⎿ 0 thoughts · 1 tool · 10 tokens',
+    );
+  });
+
+  it('abbreviates millions of tokens', () => {
+    expect(statsLine({ thoughts: 0, tools: 0, tokens: 1_250_000, style: style })).toBe(
+      '      ⎿ 0 thoughts · 0 tools · 1.3M tokens',
+    );
+  });
+});
+
+describe('hasActivity', () => {
+  it('is false for a runtime that reported nothing', () => {
+    expect(hasActivity({ thoughts: 0, tools: 0, tokens: 0, style: style })).toBe(false);
+  });
+
+  it('is true as soon as one thought landed', () => {
+    expect(hasActivity({ thoughts: 1, tools: 0, tokens: 0, style: style })).toBe(true);
   });
 });
