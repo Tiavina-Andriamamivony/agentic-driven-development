@@ -34,6 +34,21 @@ const COMMIT_PATTERN = /^PLAN_COMMIT\s*:\s*(.+)$/im;
 const STEP_PATTERN = /^PLAN_STEP\s*:\s*(.+)$/im;
 const TEST_PLAN_PATTERN = /^TEST_PLAN\s*:\s*(.+)$/im;
 const CHANGED_PATTERN = /^CHANGED\s*:\s*(.+)$/im;
+const PLACEHOLDER_FILES: ReadonlySet<string> = new Set([
+  'none',
+  'nothing',
+  'n/a',
+  'na',
+  '-',
+  '(none)',
+  'no changes',
+]);
+
+function changedPaths(stdout: string): readonly string[] {
+  return matchAll(stdout, CHANGED_PATTERN)
+    .map((entry) => entry.trim())
+    .filter((entry) => !PLACEHOLDER_FILES.has(entry.toLowerCase()));
+}
 export function createOpenCodeSteps(options: OpenCodeStepsOptions): OrchestratorSteps {
   const { runtime, workspace, model, modelsByAgent, mcp, onOutput, onActivity } = options;
   const constitution = options.constitution ?? '';
@@ -127,7 +142,7 @@ async function changeNote(options: {
     ...withSettings(settings),
   });
   return {
-    changedFiles: matchAll(result.stdout, CHANGED_PATTERN),
+    changedFiles: changedPaths(result.stdout),
     summary: matchValue(result.stdout, SUMMARY_PATTERN) ?? '(no summary)',
   };
 }

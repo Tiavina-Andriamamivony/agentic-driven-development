@@ -115,6 +115,24 @@ describe('createOpenCodeSteps', () => {
     expect(runtime.runs[0]?.instructions).toContain('add a "test" script');
   });
 
+  it('drops a CHANGED line that is a placeholder rather than a path', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: none\nSUMMARY: nothing to do')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual([]);
+  });
+
+  it('keeps the real paths next to a placeholder', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: none\nCHANGED: math.ts\nSUMMARY: ok')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual(['math.ts']);
+  });
+
   it('parses the implemented change note', async () => {
     const runtime = createFakeRuntime([
       resultFor('CHANGED: src/reset.ts\nCHANGED: src/reset.spec.ts\nSUMMARY: implemented'),
