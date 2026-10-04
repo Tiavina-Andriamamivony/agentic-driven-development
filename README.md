@@ -357,6 +357,7 @@ version, for example `lou 0.6.1`.
 | `--mcp name=<command>`           | Register an MCP server for the agents. Repeatable.                                             |
 | `--max-cost-usd <usd>`           | Stop the run if the agents spend more than this.                                               |
 | `--max-time-min <minutes>`       | Stop the run after this many minutes.                                                          |
+| `--agent-timeout-min <minutes>`  | Give each agent this long before it is killed. Defaults to 30.                                 |
 | `--max-concurrency <n>`          | How many tickets may run at the same time. Default: `1`.                                       |
 
 Examples:
