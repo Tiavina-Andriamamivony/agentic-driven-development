@@ -14,7 +14,18 @@ export function readAgentRuntimeName(value: string): AgentRuntimeName | null {
   return found ?? null;
 }
 
-export function createAgentRuntime(name: AgentRuntimeName, runner?: CommandRunner): AgentRuntime {
-  const options = runner === undefined ? {} : { runner };
-  return name === 'claude' ? new ClaudeCodeRuntime(options) : new OpenCodeRuntime(options);
+interface AgentRuntimeBuildOptions {
+  readonly runner?: CommandRunner;
+  readonly timeoutMs?: number;
+}
+
+export function createAgentRuntime(
+  name: AgentRuntimeName,
+  options?: AgentRuntimeBuildOptions,
+): AgentRuntime {
+  const settings = {
+    ...(options?.runner !== undefined ? { runner: options.runner } : {}),
+    ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+  };
+  return name === 'claude' ? new ClaudeCodeRuntime(settings) : new OpenCodeRuntime(settings);
 }

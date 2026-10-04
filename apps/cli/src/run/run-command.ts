@@ -75,6 +75,7 @@ export interface RunEnvironment {
   readonly maxCostUsd?: number;
   readonly maxMinutes?: number;
   readonly maxConcurrency?: number;
+  readonly agentTimeoutMs?: number;
   readonly summarize?: (summary: RunSummary) => Promise<void>;
 }
 
@@ -95,6 +96,7 @@ interface ProductionRunOptions {
   readonly maxCostUsd?: number;
   readonly maxMinutes?: number;
   readonly maxConcurrency?: number;
+  readonly agentTimeoutMs?: number;
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
@@ -107,6 +109,7 @@ export interface RunArguments {
   readonly maxCostUsd?: number;
   readonly maxMinutes?: number;
   readonly maxConcurrency?: number;
+  readonly agentTimeoutMs?: number;
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
@@ -126,6 +129,7 @@ const MCP_FLAG = '--mcp';
 const MAX_COST_FLAG = '--max-cost-usd';
 const MAX_TIME_FLAG = '--max-time-min';
 const MAX_CONCURRENCY_FLAG = '--max-concurrency';
+const AGENT_TIMEOUT_FLAG = '--agent-timeout-min';
 
 export function readIssueNumber(value: string | undefined): number | null {
   if (value === undefined) {
@@ -164,13 +168,28 @@ interface FlagSettings {
 }
 
 function flagSettings(flags: FlagState): FlagSettings {
+  return { ...modelFlags(flags), ...budgetFlags(flags), ...runtimeFlags(flags) };
+}
+
+function modelFlags(flags: FlagState): FlagSettings {
   return {
     ...(flags.model !== undefined ? { model: flags.model } : {}),
     ...(flags.modelsByAgent !== undefined ? { modelsByAgent: flags.modelsByAgent } : {}),
     ...(Object.keys(flags.mcp).length > 0 ? { mcp: flags.mcp } : {}),
+  };
+}
+
+function budgetFlags(flags: FlagState): FlagSettings {
+  return {
     ...(flags.maxCostUsd !== undefined ? { maxCostUsd: flags.maxCostUsd } : {}),
     ...(flags.maxMinutes !== undefined ? { maxMinutes: flags.maxMinutes } : {}),
+    ...(flags.agentTimeoutMs !== undefined ? { agentTimeoutMs: flags.agentTimeoutMs } : {}),
     ...(flags.maxConcurrency !== undefined ? { maxConcurrency: flags.maxConcurrency } : {}),
+  };
+}
+
+function runtimeFlags(flags: FlagState): FlagSettings {
+  return {
     ...(flags.runtime !== undefined ? { runtime: flags.runtime } : {}),
   };
 }
@@ -198,6 +217,7 @@ interface FlagState {
   maxCostUsd: number | undefined;
   maxMinutes: number | undefined;
   maxConcurrency: number | undefined;
+  agentTimeoutMs: number | undefined;
   runtime: AgentRuntimeName | undefined;
 }
 
@@ -210,6 +230,7 @@ const FLAG_APPLIERS: Readonly<Record<string, FlagApplier>> = {
   [MAX_COST_FLAG]: applyMaxCost,
   [MAX_TIME_FLAG]: applyMaxMinutes,
   [MAX_CONCURRENCY_FLAG]: applyMaxConcurrency,
+  [AGENT_TIMEOUT_FLAG]: applyAgentTimeout,
   [RUNTIME_FLAG]: applyRuntime,
 };
 
@@ -221,6 +242,7 @@ function parseFlags(rest: readonly string[]): FlagState | null {
     mcp: {},
     maxCostUsd: undefined,
     maxMinutes: undefined,
+    agentTimeoutMs: undefined,
     maxConcurrency: undefined,
     runtime: undefined,
   };
@@ -297,6 +319,15 @@ function applyMaxMinutes(value: string, flags: FlagState): boolean {
     return false;
   }
   flags.maxMinutes = minutes;
+  return true;
+}
+
+function applyAgentTimeout(value: string, flags: FlagState): boolean {
+  const minutes = parsePositiveNumber(value);
+  if (minutes === null) {
+    return false;
+  }
+  flags.agentTimeoutMs = Math.round(minutes * 60_000);
   return true;
 }
 
@@ -525,10 +556,10 @@ function buildAdapters(
     audit: new RedactingAuditLog(wiring.audit ?? new NodeAuditLog({ file: auditFile })),
     runtime:
       wiring.runtime ??
-      createAgentRuntime(
-        options.runtime ?? DEFAULT_AGENT_RUNTIME,
-        createSandboxedRunner(workspace, AGENT_ROLE),
-      ),
+      createAgentRuntime(options.runtime ?? DEFAULT_AGENT_RUNTIME, {
+        runner: createSandboxedRunner(workspace, AGENT_ROLE),
+        ...(options.agentTimeoutMs !== undefined ? { timeoutMs: options.agentTimeoutMs } : {}),
+      }),
   };
 }
 

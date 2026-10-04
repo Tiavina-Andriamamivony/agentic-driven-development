@@ -5,7 +5,7 @@ import type { AgentRuntime } from '@lou/agent-runtime';
 import type { AgentRunInput, AgentRunResult, AgentStatus, TokenUsage } from '@lou/agent-runtime';
 import { ClaudeStreamReader } from './claude-stream.ts';
 
-const DEFAULT_TIMEOUT_MS = 300_000;
+const DEFAULT_TIMEOUT_MS = 1_800_000;
 const PERMISSION_MODE = 'acceptEdits';
 
 export interface ClaudeCodeRuntimeOptions {

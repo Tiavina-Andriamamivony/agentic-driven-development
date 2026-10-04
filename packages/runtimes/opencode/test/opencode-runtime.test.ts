@@ -40,6 +40,17 @@ describe('OpenCodeRuntime', () => {
     ]);
   });
 
+  it('forwards an explicit timeout to the command runner', async () => {
+    const runner = new FakeRunner();
+    const runtime = new OpenCodeRuntime({ runner, timeoutMs: 1_200_000 });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(SUCCESS);
+    await pending;
+
+    expect(runner.calls[0]?.options.timeoutMs).toBe(1_200_000);
+  });
+
   it('tells opencode which directory to work in', async () => {
     const runner = new FakeRunner();
     const runtime = new OpenCodeRuntime({ runner });
@@ -64,7 +75,7 @@ describe('OpenCodeRuntime', () => {
     await pending;
 
     expect(runner.calls[0]?.options.cwd).toBe(INPUT.workspace);
-    expect(runner.calls[0]?.options.timeoutMs).toBe(300_000);
+    expect(runner.calls[0]?.options.timeoutMs).toBe(1_800_000);
   });
 
   it('honours a custom binary and model', async () => {

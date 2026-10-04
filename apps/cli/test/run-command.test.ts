@@ -544,6 +544,20 @@ describe('parseRunArguments', () => {
     ).toEqual({ issueNumbers: [12], dryRun: false, maxCostUsd: 1.5, maxMinutes: 30 });
   });
 
+  it('parses --agent-timeout-min', () => {
+    expect(parseRunArguments(['run', '12', '--agent-timeout-min', '20'])).toEqual({
+      issueNumbers: [12],
+      dryRun: false,
+      agentTimeoutMs: 1_200_000,
+    });
+  });
+
+  it('rejects a non-numeric or non-positive agent timeout', () => {
+    expect(parseRunArguments(['run', '12', '--agent-timeout-min', 'abc'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--agent-timeout-min', '0'])).toBeNull();
+    expect(parseRunArguments(['run', '12', '--agent-timeout-min'])).toBeNull();
+  });
+
   it('rejects non-numeric or non-positive budget limits', () => {
     expect(parseRunArguments(['run', '12', '--max-cost-usd', 'abc'])).toBeNull();
     expect(parseRunArguments(['run', '12', '--max-cost-usd', '0'])).toBeNull();

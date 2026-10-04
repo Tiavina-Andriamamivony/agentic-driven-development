@@ -4,7 +4,7 @@ import type { AgentRuntime } from '@lou/agent-runtime';
 import type { AgentRunInput, AgentRunResult, AgentStatus } from '@lou/agent-runtime';
 import { OpenCodeEventReader } from './opencode-event-reader.ts';
 
-const DEFAULT_TIMEOUT_MS = 300_000;
+const DEFAULT_TIMEOUT_MS = 1_800_000;
 const MCP_CONFIG_ENV = 'OPENCODE_CONFIG_CONTENT';
 
 export interface OpenCodeRuntimeOptions {
