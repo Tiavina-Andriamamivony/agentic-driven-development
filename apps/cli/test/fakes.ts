@@ -127,10 +127,17 @@ export function createTestRunner(passed: boolean): {
         stdout: passed ? 'ok' : 'boom',
         stderr: '',
         interrupted: false,
+        command: 'pnpm test',
       });
     },
   };
   return { runs, runner: tester };
+}
+
+export function provingVerifier(): {
+  run(o: { cwd: string }): Promise<{ passed: boolean; reason?: string }>;
+} {
+  return { run: () => Promise.resolve({ passed: true }) };
 }
 
 export function readyDoctorProbes(): DoctorProbes {

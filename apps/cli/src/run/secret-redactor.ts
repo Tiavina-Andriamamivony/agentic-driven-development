@@ -61,6 +61,10 @@ function scrub(text: string): string {
     .replace(URL_CREDENTIALS, `://${REDACTED}@`);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 export class SecretRedactor {
   private insidePrivateKey = false;
 
@@ -70,6 +74,28 @@ export class SecretRedactor {
 
   reset(): void {
     this.insidePrivateKey = false;
+  }
+
+  redactValue(value: unknown): unknown {
+    if (typeof value === 'string') {
+      this.reset();
+      return this.redact(value);
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => this.redactValue(item));
+    }
+    if (isRecord(value)) {
+      return this.redactRecord(value);
+    }
+    return value;
+  }
+
+  private redactRecord(value: Record<string, unknown>): Record<string, unknown> {
+    const redacted: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      redacted[key] = this.redactValue(item);
+    }
+    return redacted;
   }
 
   private resume(chunk: string): string {

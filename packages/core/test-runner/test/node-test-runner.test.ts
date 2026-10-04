@@ -79,6 +79,54 @@ describe('NodeTestRunner', () => {
     expect(result.retryable).toBe(false);
   });
 
+  it('refuses to pass when the test runner reports no test', async () => {
+    const runner = new RecordingRunner({
+      exitCode: 0,
+      stdout: 'No test files found, exiting with code 1',
+      stderr: '',
+      interrupted: false,
+    });
+    const testRunner = new NodeTestRunner({ runner });
+    const pending = testRunner.run({ cwd: dir });
+
+    const result = await pending;
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('ran no test');
+    expect(result.retryable).toBe(false);
+  });
+
+  it('refuses to pass when node:test ran nothing', async () => {
+    const runner = new RecordingRunner({
+      exitCode: 0,
+      stdout: '# tests 0\n# pass 0\n# fail 0',
+      stderr: '',
+      interrupted: false,
+    });
+    const testRunner = new NodeTestRunner({ runner });
+    const pending = testRunner.run({ cwd: dir });
+
+    const result = await pending;
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('node:test');
+  });
+
+  it('reports the exact command that ran', async () => {
+    const runner = new RecordingRunner({
+      exitCode: 0,
+      stdout: 'ok',
+      stderr: '',
+      interrupted: false,
+    });
+    const testRunner = new NodeTestRunner({ runner });
+    const pending = testRunner.run({ cwd: dir });
+
+    const result = await pending;
+
+    expect(result.command).toBe('pnpm test');
+  });
+
   it('refuses to pass when the test command prints nothing', async () => {
     seedPassingSuite();
     const adapter = new NodeTestRunner({ runner: new RecordingRunner(SILENT_PASS) });

@@ -40,7 +40,9 @@ import { createInterface } from 'node:readline/promises';
 import { createOpenCodeSteps } from './opencode-steps.ts';
 import { createRealDoctorProbes } from '../doctor/real-probes.ts';
 import type { DoctorProbes } from '../doctor/doctor-command.ts';
+import { RedactingAuditLog } from './redacting-audit-log.ts';
 import { runPreflight } from './run-preflight.ts';
+import type { VerificationRunner } from './run-preflight.ts';
 import { pruneRunCycles } from './run-retention.ts';
 import { mapWithConcurrency } from './concurrency.ts';
 import { createTerminalKeeper } from './terminal-keeper.ts';
@@ -60,6 +62,7 @@ export interface RunEnvironment {
   readonly runtime: AgentRuntime;
   readonly runtimeName: AgentRuntimeName;
   readonly preflightProbes?: DoctorProbes;
+  readonly verifier: VerificationRunner;
   readonly conventions: string;
   readonly ask: (question: string) => Promise<string>;
   readonly out: (line: string) => void;
@@ -479,6 +482,7 @@ interface RunTicketWiring {
   readonly isTty?: boolean;
   readonly rawOut?: (text: string) => void;
   readonly preflightProbes?: DoctorProbes;
+  readonly preflightVerifier?: VerificationRunner;
 }
 
 interface RunTicketRequest {
@@ -518,7 +522,7 @@ function buildAdapters(
       }),
     tests:
       wiring.tests ?? new NodeTestRunner({ runner: createSandboxedRunner(workspace, TESTS_ROLE) }),
-    audit: wiring.audit ?? new NodeAuditLog({ file: auditFile }),
+    audit: new RedactingAuditLog(wiring.audit ?? new NodeAuditLog({ file: auditFile })),
     runtime:
       wiring.runtime ??
       createAgentRuntime(
@@ -547,6 +551,9 @@ export function buildRunEnvironment(request: RunTicketRequest): RunEnvironment {
     ...buildAdapters(workspace, auditFile, options, wiring),
     runtimeName: options.runtime ?? DEFAULT_AGENT_RUNTIME,
     ...optionalWiring(wiring),
+    verifier:
+      wiring.preflightVerifier ??
+      new NodeTestRunner({ runner: createSandboxedRunner(options.cwd, TESTS_ROLE) }),
     conventions: 'conventional commits',
     ask: wiring.ask ?? terminalQuestion,
     out: (line) => {
@@ -622,7 +629,8 @@ async function openIssue(env: RunEnvironment): Promise<GitHubIssue | null> {
 
 async function preflightOk(env: RunEnvironment, style: Styler): Promise<boolean> {
   const probes = env.preflightProbes ?? createRealDoctorProbes(env.root);
-  const outcome = await runPreflight(probes, env.root, env.runtimeName);
+  const outcome = await runPreflight(probes, env.root, env.runtimeName, env.verifier);
+  await recordPreflight(env, outcome);
   if (outcome.ok) {
     return true;
   }
@@ -634,6 +642,24 @@ async function preflightOk(env: RunEnvironment, style: Styler): Promise<boolean>
   }
   env.out('');
   return false;
+}
+
+async function recordPreflight(
+  env: RunEnvironment,
+  outcome: {
+    readonly ok: boolean;
+    readonly findings: readonly { label: string; detail: string }[];
+  },
+): Promise<void> {
+  await env.audit.record({
+    runId: `run-${env.issueNumber}`,
+    event: 'test_finished',
+    target: 'preflight',
+    result: outcome.ok ? 'success' : 'failure',
+    reason: outcome.ok
+      ? 'every prerequisite was ready'
+      : outcome.findings.map((f) => `${f.label}: ${f.detail}`).join('; '),
+  });
 }
 
 export async function runTicket(env: RunEnvironment): Promise<number> {

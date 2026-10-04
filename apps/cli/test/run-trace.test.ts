@@ -6,6 +6,7 @@ import { createStyler } from '../src/ux/style.ts';
 
 const TICKET = { issueNumber: 12, title: 'Add reset password', workspace: '/work/lou' };
 const HEADER = ['', '  ▍ lou run #12 · Add reset password', '  ⎿ workspace /work/lou', ''];
+const SPIN_MS = 120;
 
 function send(trace: RunTrace, payload: Omit<AuditEventPayload, 'runId'>): void {
   trace.event({ runId: 'RUN-TRACE', ...payload });
@@ -222,6 +223,40 @@ describe('run trace live agent activity', () => {
     trace.activity({ kind: 'text', text: 'writing tests' });
 
     expect(frames.join('')).toContain('writing tests');
+  });
+
+  it('heartbeats instead of going quiet when the agent stops reporting', () => {
+    vi.useFakeTimers();
+    try {
+      const { trace, frames, advance } = harness({ isTty: true });
+      trace.begin(TICKET);
+      send(trace, { event: 'agent_started', agent: 'developer' });
+      advance(20_000);
+      vi.advanceTimersByTime(SPIN_MS);
+
+      expect(frames.at(-1)).toContain('no events for 20s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops claiming silence once the agent reports again', () => {
+    vi.useFakeTimers();
+    try {
+      const { trace, frames, advance } = harness({ isTty: true });
+      trace.begin(TICKET);
+      send(trace, { event: 'agent_started', agent: 'developer' });
+      advance(20_000);
+      vi.advanceTimersByTime(SPIN_MS);
+      trace.activity({ kind: 'text', text: 'still going' });
+      advance(1_000);
+      vi.advanceTimersByTime(SPIN_MS);
+
+      expect(frames.at(-1)).not.toContain('no events for');
+      expect(frames.at(-1)).toContain('still going');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('ignores output that arrives with no agent running', () => {

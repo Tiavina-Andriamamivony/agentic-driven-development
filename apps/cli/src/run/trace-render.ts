@@ -21,6 +21,7 @@ interface LiveInput {
   readonly label: string;
   readonly activity: string;
   readonly duration: string;
+  readonly silentFor?: string;
   readonly columns: number;
   readonly style: Styler;
 }
@@ -87,8 +88,10 @@ export function sectionLine(phase: string, style: Styler): string {
 
 export function liveLine(input: LiveInput): string {
   const head = `${input.frame} ${input.label}`;
-  const room = input.columns - ITEM.length - head.length - input.duration.length - 4;
-  const activity = truncate(input.activity, Math.max(MIN_ACTIVITY, room));
+  const quietFor = input.silentFor ?? '';
+  const room =
+    input.columns - ITEM.length - head.length - input.duration.length - quietFor.length - 4;
+  const activity = withSilence(input.activity, quietFor, Math.max(MIN_ACTIVITY, room));
   const plain = activity === '' ? head : `${head} ${DOT} ${activity}`;
   const lead = `${input.style.tone(input.label, input.frame)} ${input.style.agent(input.label)}`;
   if (input.duration === '') {
@@ -96,6 +99,15 @@ export function liveLine(input: LiveInput): string {
   }
   const gap = Math.max(1, input.columns - ITEM.length - plain.length - input.duration.length);
   return `${ITEM}${lead}${body(input, activity)}${' '.repeat(gap)}${input.style.dim(input.duration)}`;
+}
+
+function withSilence(activity: string, quietFor: string, room: number): string {
+  if (quietFor === '') {
+    return truncate(activity, room);
+  }
+  const heartbeat = `no events for ${quietFor}`;
+  const combined = activity === '' ? heartbeat : `${activity} ${DOT} ${heartbeat}`;
+  return truncate(combined, room);
 }
 
 function body(input: LiveInput, activity: string): string {
@@ -123,15 +135,25 @@ export function toolLine(input: ToolLineInput): string {
 }
 
 export function statsLine(input: StatsInput): string {
-  const parts = [
-    countLabel(input.thoughts, 'thought', 'thoughts'),
-    countLabel(input.tools, 'tool', 'tools'),
-    `${formatTokens(input.tokens)} tokens`,
-  ];
+  return detailLine({ text: statsParts(input).join(` ${DOT} `), style: input.style });
+}
+
+function statsParts(input: StatsInput): readonly string[] {
+  const parts: string[] = [];
+  if (input.thoughts > 0) {
+    parts.push(countLabel(input.thoughts, 'thought', 'thoughts'));
+  }
+  if (input.tools > 0) {
+    parts.push(countLabel(input.tools, 'tool', 'tools'));
+  }
+  if (input.thoughts === 0 && input.tools === 0) {
+    parts.push('no activity reported');
+  }
+  parts.push(`${formatTokens(input.tokens)} tokens`);
   if (input.costUsd !== undefined && input.costUsd > 0) {
     parts.push(formatCost(input.costUsd));
   }
-  return detailLine({ text: parts.join(` ${DOT} `), style: input.style });
+  return parts;
 }
 
 export function hasActivity(stats: StatsInput): boolean {

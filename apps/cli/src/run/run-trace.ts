@@ -44,6 +44,7 @@ export interface RunTrace {
 }
 
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const QUIET_FLOOR_MS = 15_000;
 const SPIN_MS = 120;
 const BEAT_MS = 30_000;
 const TIMER_FLOOR_MS = 5_000;
@@ -57,6 +58,7 @@ class LiveTrace implements RunTrace {
   private timer: ReturnType<typeof setInterval> | undefined;
   private label: string | undefined;
   private since = 0;
+  private lastEvent = 0;
   private phase: string | undefined;
   private readonly phases = new Set<string>();
   private stream: StreamView = EMPTY_STREAM;
@@ -111,6 +113,7 @@ class LiveTrace implements RunTrace {
       this.recordTool(activity);
     }
     this.stream = feedActivity(this.stream, activity);
+    this.lastEvent = this.options.now();
     this.refresh();
   }
 
@@ -160,6 +163,7 @@ class LiveTrace implements RunTrace {
     this.stop();
     this.label = label;
     this.since = this.options.now();
+    this.lastEvent = this.since;
     this.stream = EMPTY_STREAM;
     this.timer = setInterval(this.ticker, this.period);
     this.timer.unref();
@@ -226,6 +230,7 @@ class LiveTrace implements RunTrace {
       label,
       activity: this.stream.activity,
       duration: elapsedMs >= TIMER_FLOOR_MS ? humanDuration(elapsedMs) : '',
+      silentFor: this.quietFor(),
       columns: this.width(),
       style: this.options.style,
     });
@@ -234,6 +239,11 @@ class LiveTrace implements RunTrace {
       return;
     }
     this.options.out(body);
+  }
+
+  private quietFor(): string {
+    const quietMs = this.elapsed(this.lastEvent);
+    return quietMs >= QUIET_FLOOR_MS ? humanDuration(quietMs) : '';
   }
 
   private width(): number {

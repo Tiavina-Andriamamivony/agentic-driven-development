@@ -28,6 +28,7 @@ export function createTestRunner(
         stdout: script.stdout ?? '',
         stderr: script.passed ? '' : 'boom',
         interrupted: false,
+        command: 'pnpm test',
         ...(script.reason !== undefined ? { reason: script.reason } : {}),
         ...(script.retryable !== undefined ? { retryable: script.retryable } : {}),
       });

@@ -209,16 +209,22 @@ describe('statsLine', () => {
 
   it('adds the cost only when the runtime reported one', () => {
     expect(statsLine({ thoughts: 0, tools: 1, tokens: 10, costUsd: 0.5, style: style })).toBe(
-      '      ⎿ 0 thoughts · 1 tool · 10 tokens · $0.500',
+      '      ⎿ 1 tool · 10 tokens · $0.500',
     );
     expect(statsLine({ thoughts: 0, tools: 1, tokens: 10, costUsd: 0, style: style })).toBe(
-      '      ⎿ 0 thoughts · 1 tool · 10 tokens',
+      '      ⎿ 1 tool · 10 tokens',
+    );
+  });
+
+  it('says nothing was reported rather than claiming zero work', () => {
+    expect(statsLine({ thoughts: 0, tools: 0, tokens: 500, style: style })).toBe(
+      '      ⎿ no activity reported · 500 tokens',
     );
   });
 
   it('abbreviates millions of tokens', () => {
     expect(statsLine({ thoughts: 0, tools: 0, tokens: 1_250_000, style: style })).toBe(
-      '      ⎿ 0 thoughts · 0 tools · 1.3M tokens',
+      '      ⎿ no activity reported · 1.3M tokens',
     );
   });
 });
