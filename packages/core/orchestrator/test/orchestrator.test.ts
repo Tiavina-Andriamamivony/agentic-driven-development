@@ -208,6 +208,41 @@ describe('Orchestrator', () => {
     expect(steps.state.implementations).toBe(2);
   });
 
+  it('escalates immediately when the test suite cannot run at all', async () => {
+    const { orchestrator, audit, steps } = buildHarness({
+      testScripts: [{ passed: false, reason: 'no test script named "test"', retryable: false }],
+    });
+
+    const outcome = await orchestrator.run();
+
+    expect(outcome.status).toBe('human-intervention');
+    expect(outcome.reason).toContain('no test script');
+    expect(steps.state.implementations).toBe(0);
+    expect(audit.types()).not.toContain('pr_created');
+  });
+
+  it('records the test failure reason on the audit trail', async () => {
+    const { orchestrator, audit } = buildHarness({
+      testScripts: [
+        { passed: true },
+        { passed: false, reason: 'assertion failed: expected 2 to be 3' },
+        { passed: true },
+      ],
+    });
+
+    await orchestrator.run();
+
+    expect(audit.events()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: 'test_finished',
+          result: 'failure',
+          reason: 'assertion failed: expected 2 to be 3',
+        }),
+      ]),
+    );
+  });
+
   it('delegates to a human when the plan loop budget is exhausted', async () => {
     const { orchestrator, audit } = buildHarness({
       planDecisions: [false, false, false, false, false, false],

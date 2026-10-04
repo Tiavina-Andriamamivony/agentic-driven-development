@@ -3,6 +3,8 @@ import type { TestResult, TestRunner, TestRunOptions } from '@lou/test-runner';
 export interface TestRunScript {
   readonly passed: boolean;
   readonly stdout?: string;
+  readonly reason?: string;
+  readonly retryable?: boolean;
 }
 
 interface TestRunnerSpy {
@@ -26,6 +28,9 @@ export function createTestRunner(
         stdout: script.stdout ?? '',
         stderr: script.passed ? '' : 'boom',
         interrupted: false,
+        command: 'pnpm test',
+        ...(script.reason !== undefined ? { reason: script.reason } : {}),
+        ...(script.retryable !== undefined ? { retryable: script.retryable } : {}),
       });
     },
   };

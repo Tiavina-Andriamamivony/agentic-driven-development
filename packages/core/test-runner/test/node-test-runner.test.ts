@@ -1,5 +1,5 @@
 import type { CommandResult, CommandRunner, CommandRunOptions } from '@lou/command-runner';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -26,7 +26,22 @@ class RecordingRunner implements CommandRunner {
   }
 }
 
+const SILENT_PASS: CommandResult = {
+  exitCode: 0,
+  stdout: '',
+  stderr: '',
+  interrupted: false,
+};
+
 let dir: string;
+
+function seedManifest(scripts: Record<string, string>): void {
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts }));
+}
+
+function seedPassingSuite(): void {
+  seedManifest({ test: 'node -e \'process.stdout.write("3 passed")\'' });
+}
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'lou-tests-'));
@@ -37,20 +52,143 @@ afterEach(() => {
 });
 
 describe('NodeTestRunner', () => {
-  it('defaults to pnpm test and reports a pass on zero exit', async () => {
-    const fake = new RecordingRunner({ exitCode: 0, stdout: '', stderr: '', interrupted: false });
+  it('defaults to pnpm test in the project directory', async () => {
+    const fake = new RecordingRunner({
+      exitCode: 0,
+      stdout: '3 passed',
+      stderr: '',
+      interrupted: false,
+    });
     const adapter = new NodeTestRunner({ runner: fake });
 
-    const result = await adapter.run({ cwd: dir });
+    await adapter.run({ cwd: dir });
 
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0]?.command).toBe('pnpm');
     expect(fake.calls[0]?.args).toEqual(['test']);
+  });
+
+  it('refuses to pass when the manifest has no test script', async () => {
+    seedManifest({ build: 'tsc' });
+    const adapter = new NodeTestRunner({ runner: new RecordingRunner(SILENT_PASS) });
+
+    const result = await adapter.run({ cwd: dir });
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('no test script');
+    expect(result.retryable).toBe(false);
+  });
+
+  it('refuses to pass when the test runner reports no test', async () => {
+    const runner = new RecordingRunner({
+      exitCode: 0,
+      stdout: 'No test files found, exiting with code 1',
+      stderr: '',
+      interrupted: false,
+    });
+    const testRunner = new NodeTestRunner({ runner });
+    const pending = testRunner.run({ cwd: dir });
+
+    const result = await pending;
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('ran no test');
+    expect(result.retryable).toBe(false);
+  });
+
+  it('refuses to pass when node:test ran nothing', async () => {
+    const runner = new RecordingRunner({
+      exitCode: 0,
+      stdout: '# tests 0\n# pass 0\n# fail 0',
+      stderr: '',
+      interrupted: false,
+    });
+    const testRunner = new NodeTestRunner({ runner });
+    const pending = testRunner.run({ cwd: dir });
+
+    const result = await pending;
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('node:test');
+  });
+
+  it('reports the exact command that ran', async () => {
+    const runner = new RecordingRunner({
+      exitCode: 0,
+      stdout: 'ok',
+      stderr: '',
+      interrupted: false,
+    });
+    const testRunner = new NodeTestRunner({ runner });
+    const pending = testRunner.run({ cwd: dir });
+
+    const result = await pending;
+
+    expect(result.command).toBe('pnpm test');
+  });
+
+  it('refuses to pass when the test command prints nothing', async () => {
+    seedPassingSuite();
+    const adapter = new NodeTestRunner({ runner: new RecordingRunner(SILENT_PASS) });
+
+    const result = await adapter.run({ cwd: dir });
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('no output');
+    expect(result.retryable).toBe(false);
+  });
+
+  it('passes when the script exists and the run printed a verdict', async () => {
+    seedPassingSuite();
+    const adapter = new NodeTestRunner({
+      runner: new RecordingRunner({
+        exitCode: 0,
+        stdout: '3 passed',
+        stderr: '',
+        interrupted: false,
+      }),
+    });
+
+    const result = await adapter.run({ cwd: dir });
+
+    expect(result.passed).toBe(true);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('accepts a suite that reports on stderr only', async () => {
+    seedPassingSuite();
+    const adapter = new NodeTestRunner({
+      runner: new RecordingRunner({
+        exitCode: 0,
+        stdout: '',
+        stderr: '3 passed',
+        interrupted: false,
+      }),
+    });
+
+    const result = await adapter.run({ cwd: dir });
+
     expect(result.passed).toBe(true);
   });
 
+  it('never passes the real pnpm of a project without a test script', async () => {
+    seedManifest({ build: 'tsc' });
+    const adapter = new NodeTestRunner();
+
+    const result = await adapter.run({ cwd: dir });
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('no test script');
+    expect(result.retryable).toBe(false);
+  });
+
   it('forwards the working directory to the underlying runner', async () => {
-    const fake = new RecordingRunner({ exitCode: 0, stdout: '', stderr: '', interrupted: false });
+    const fake = new RecordingRunner({
+      exitCode: 0,
+      stdout: '3 passed',
+      stderr: '',
+      interrupted: false,
+    });
     const adapter = new NodeTestRunner({ runner: fake });
 
     await adapter.run({ cwd: dir });
@@ -73,7 +211,27 @@ describe('NodeTestRunner', () => {
     const result = await adapter.run({
       cwd: dir,
       command: 'node',
-      args: ['-e', 'process.exit(0)'],
+      args: ['-e', 'process.stdout.write("ok")'],
+    });
+
+    expect(result.passed).toBe(true);
+  });
+
+  it('leaves the script check to a caller who brings its own command', async () => {
+    seedManifest({ build: 'tsc' });
+    const adapter = new NodeTestRunner({
+      runner: new RecordingRunner({
+        exitCode: 0,
+        stdout: '3 passed',
+        stderr: '',
+        interrupted: false,
+      }),
+    });
+
+    const result = await adapter.run({
+      cwd: dir,
+      command: 'node',
+      args: ['-e', 'process.stdout.write("3 passed")'],
     });
 
     expect(result.passed).toBe(true);
@@ -89,6 +247,8 @@ describe('NodeTestRunner', () => {
     });
 
     expect(result.passed).toBe(false);
+    expect(result.reason).toBe('the test command exited 3');
+    expect(result.retryable).toBeUndefined();
     expect(result.exitCode).toBe(3);
     expect(result.stdout).toContain('boom');
   });

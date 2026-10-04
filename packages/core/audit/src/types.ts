@@ -29,6 +29,10 @@ export interface AuditEvent {
   readonly risk?: AuditRisk;
   readonly tool?: string;
   readonly target?: string;
+  readonly reason?: string;
+  readonly command?: string;
+  readonly excerpt?: string;
+  readonly exitCode?: number;
 }
 
 export type AuditEventPayload = Omit<AuditEvent, 'timestamp'>;

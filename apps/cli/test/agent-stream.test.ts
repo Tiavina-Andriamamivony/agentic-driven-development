@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_STREAM, feedStream, stripAnsi } from '../src/run/agent-stream.ts';
+import { EMPTY_STREAM, feedActivity, feedStream, stripAnsi } from '../src/run/agent-stream.ts';
 
 describe('stripAnsi', () => {
   it('removes colour sequences', () => {
@@ -104,5 +104,70 @@ describe('feedStream', () => {
   it('starts from an empty view', () => {
     expect(EMPTY_STREAM.activity).toBe('');
     expect(EMPTY_STREAM.summary).toBe('');
+  });
+});
+
+describe('feedActivity', () => {
+  it('exposes a thought as the live activity and counts it', () => {
+    const view = feedActivity(EMPTY_STREAM, {
+      kind: 'thinking',
+      text: 'I should read the auth module',
+    });
+
+    expect(view.activity).toBe('I should read the auth module');
+    expect(view.thoughts).toBe(1);
+  });
+
+  it('exposes a tool as the live activity and counts it', () => {
+    const view = feedActivity(EMPTY_STREAM, {
+      kind: 'tool',
+      tool: 'read',
+      detail: 'src/auth.ts',
+      ok: true,
+    });
+
+    expect(view.activity).toBe('read src/auth.ts');
+    expect(view.tools).toBe(1);
+  });
+
+  it('falls back to the tool name when there is no detail', () => {
+    const view = feedActivity(EMPTY_STREAM, { kind: 'tool', tool: 'bash', detail: '', ok: true });
+
+    expect(view.activity).toBe('bash');
+  });
+
+  it('keeps the latest tokens and cost reported by the runtime', () => {
+    const first = feedActivity(EMPTY_STREAM, {
+      kind: 'usage',
+      inputTokens: 100,
+      outputTokens: 10,
+      reasoningTokens: 5,
+      cachedTokens: 0,
+      costUsd: 0.5,
+    });
+    const second = feedActivity(first, {
+      kind: 'usage',
+      inputTokens: 200,
+      outputTokens: 20,
+      reasoningTokens: 5,
+      cachedTokens: 0,
+      costUsd: 0.9,
+    });
+
+    expect(second.tokens).toBe(220);
+    expect(second.costUsd).toBe(0.9);
+  });
+
+  it('captures the summary carried by a text activity', () => {
+    const view = feedActivity(EMPTY_STREAM, { kind: 'text', text: 'SUMMARY: added watchlist' });
+
+    expect(view.summary).toBe('added watchlist');
+    expect(view.activity).toBe('');
+  });
+
+  it('keeps only the current line of a multiline thought', () => {
+    const view = feedActivity(EMPTY_STREAM, { kind: 'thinking', text: 'first line\nsecond line' });
+
+    expect(view.activity).toBe('second line');
   });
 });

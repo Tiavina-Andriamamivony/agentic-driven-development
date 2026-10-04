@@ -8,10 +8,13 @@ export interface TestRunOptions {
 
 export interface TestResult {
   readonly passed: boolean;
+  readonly command: string;
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
   readonly interrupted: boolean;
+  readonly reason?: string;
+  readonly retryable?: boolean;
 }
 
 export interface TestRunner {

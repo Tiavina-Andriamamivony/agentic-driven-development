@@ -5,9 +5,11 @@ import type { GitHubAdapter, GitHubIssue } from '@lou/github';
 import type { ReviewerAgent } from '@lou/reviewer';
 import type { Command, Phase } from '@lou/state-machine';
 import { COMMANDS, PHASES, Workflow } from '@lou/state-machine';
-import type { TestRunner } from '@lou/test-runner';
+import type { TestResult, TestRunner } from '@lou/test-runner';
 import { InterventionBudgetError } from './intervention-budget-error.ts';
+import { UnrunnableTestsError } from './unrunnable-tests-error.ts';
 import { buildPullRequestBody } from './pr-body.ts';
+import { testOutcome } from './test-outcome.ts';
 import type {
   ApprovalDecision,
   ApprovalKind,
@@ -117,6 +119,9 @@ export class Orchestrator {
         return this.intervention(error.limit.details);
       }
       if (error instanceof InterventionBudgetError) {
+        return this.intervention(error.message);
+      }
+      if (error instanceof UnrunnableTestsError) {
         return this.intervention(error.message);
       }
       return this.failure(errorMessage(error));
@@ -305,10 +310,16 @@ export class Orchestrator {
     await this.audit.record(this.event('test_started', { target: kind }));
     const result = await this.tests.run({ cwd: this.workspace });
     this.testReport = `exit ${result.exitCode}: ${result.stdout || result.stderr || '(no output)'}`;
-    await this.audit.record(
-      this.event('test_finished', { result: result.passed ? 'success' : 'failure', target: kind }),
-    );
+    await this.audit.record(this.event('test_finished', testOutcome(kind, result)));
+    this.refuseUnrunnableTests(result);
     return result.passed;
+  }
+
+  private refuseUnrunnableTests(result: TestResult): void {
+    if (result.passed || result.retryable !== false) {
+      return;
+    }
+    throw new UnrunnableTestsError(result.reason ?? 'tests cannot run in this workspace');
   }
 
   private async recordChanges(note: ChangeNote): Promise<void> {

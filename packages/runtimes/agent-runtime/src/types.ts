@@ -1,4 +1,5 @@
 import type { CommandResult, OutputHandler } from '@lou/command-runner';
+import type { ActivityHandler } from './activity.ts';
 
 export interface TokenUsage {
   readonly promptTokens: number;
@@ -14,6 +15,7 @@ export interface AgentRunInput {
   readonly instructions: string;
   readonly workspace: string;
   readonly onOutput?: OutputHandler;
+  readonly onActivity?: ActivityHandler;
 }
 
 export interface AgentRunResult extends CommandResult {

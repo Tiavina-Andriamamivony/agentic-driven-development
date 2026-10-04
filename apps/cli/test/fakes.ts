@@ -1,3 +1,4 @@
+import type { DoctorCheck, DoctorProbes } from '../src/doctor/doctor-command.ts';
 import type { AuditLog, AuditEvent, AuditEventPayload } from '@lou/audit';
 import type { GitAdapter } from '@lou/git';
 import type { GitHubAdapter, GitHubIssue, PullRequest, PullRequestInput } from '@lou/github';
@@ -126,10 +127,28 @@ export function createTestRunner(passed: boolean): {
         stdout: passed ? 'ok' : 'boom',
         stderr: '',
         interrupted: false,
+        command: 'pnpm test',
       });
     },
   };
   return { runs, runner: tester };
+}
+
+export function provingVerifier(): {
+  run(o: { cwd: string }): Promise<{ passed: boolean; reason?: string }>;
+} {
+  return { run: () => Promise.resolve({ passed: true }) };
+}
+
+export function readyDoctorProbes(): DoctorProbes {
+  const pass: DoctorCheck = { label: 'ok', ok: true, detail: 'fine' };
+  return {
+    node: () => Promise.resolve(pass),
+    pnpm: () => Promise.resolve(pass),
+    gitHubCli: () => Promise.resolve(pass),
+    agentRuntime: () => Promise.resolve(pass),
+    gitRepository: () => Promise.resolve(pass),
+  };
 }
 
 const DEFAULT_REPLY: AgentRunResult = {

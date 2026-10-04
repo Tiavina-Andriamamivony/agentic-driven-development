@@ -19,6 +19,8 @@ import {
   createGitHubSpy,
   createGitSpy,
   createTestRunner,
+  provingVerifier,
+  readyDoctorProbes,
   resultFor,
 } from './fakes';
 
@@ -98,6 +100,9 @@ function buildEnv(
     github: github.github,
     git: git.git,
     tests: tests.runner,
+    runtimeName: 'opencode',
+    preflightProbes: readyDoctorProbes(),
+    verifier: provingVerifier(),
     audit: audit.log,
     runtime,
     conventions: 'conventional commits',
@@ -134,6 +139,50 @@ describe('runTicket', () => {
     );
   });
 
+  it('records the preflight verdict before any agent runs', async () => {
+    const { env, audit, runtime } = buildEnv(happyReplies());
+
+    await runTicket(env);
+
+    const recorded = audit.events().map((event) => event.event);
+    const preflight = audit.events().find((event) => event.target === 'preflight');
+    expect(preflight?.event).toBe('test_finished');
+    expect(preflight?.result).toBe('success');
+    expect(recorded.indexOf('test_finished')).toBeLessThan(recorded.indexOf('agent_started'));
+    expect(runtime.runs.length).toBeGreaterThan(0);
+  });
+
+  it('refuses to start the run when the audit trail cannot be written', async () => {
+    const { env, runtime } = buildEnv(happyReplies());
+    const broken: RunEnvironment = {
+      ...env,
+      audit: {
+        record: () => Promise.reject(new Error('audit disk full')),
+        history: () => Promise.resolve([]),
+      },
+    };
+
+    await expect(runTicket(broken)).rejects.toThrow('audit disk full');
+    expect(runtime.runs).toHaveLength(0);
+  });
+
+  it('records a failing preflight verdict and runs no agent', async () => {
+    const { env, audit, runtime, out } = buildEnv(happyReplies());
+    const broken: RunEnvironment = {
+      ...env,
+      verifier: { run: () => Promise.resolve({ passed: false, reason: 'no test ran' }) },
+    };
+
+    const code = await runTicket(broken);
+
+    const preflight = audit.events().find((event) => event.target === 'preflight');
+    expect(code).toBe(1);
+    expect(preflight?.result).toBe('failure');
+    expect(preflight?.reason).toContain('no test ran');
+    expect(runtime.runs).toHaveLength(0);
+    expect(out.join('\n')).toContain('Preflight failed');
+  });
+
   it('refuses a closed issue', async () => {
     const closed: GitHubIssue = { ...ISSUE, state: 'CLOSED' };
     const { env, out } = buildEnv([], closed);
@@ -163,6 +212,9 @@ describe('runTicket', () => {
       tests: tests.runner,
       audit: audit.log,
       runtime,
+      runtimeName: 'opencode',
+      preflightProbes: readyDoctorProbes(),
+      verifier: provingVerifier(),
       conventions: 'conventional commits',
       ask: () => Promise.resolve('y'),
       out: (line: string) => out.push(line),
@@ -298,6 +350,9 @@ describe('runTicket in dry-run', () => {
       tests: tests.runner,
       audit: audit.log,
       runtime,
+      runtimeName: 'opencode',
+      preflightProbes: readyDoctorProbes(),
+      verifier: provingVerifier(),
       conventions: 'conventional commits',
       ask: () => Promise.resolve('y'),
       out: (line: string) => out.push(line),
@@ -339,6 +394,9 @@ describe('runTicket in dry-run', () => {
       tests: createTestRunner(true).runner,
       audit: createAuditSpy().log,
       runtime,
+      runtimeName: 'opencode',
+      preflightProbes: readyDoctorProbes(),
+      verifier: provingVerifier(),
       conventions: 'conventional commits',
       ask: (question: string) => {
         answered.push(question);
@@ -366,6 +424,9 @@ describe('runTicket in dry-run', () => {
       tests: createTestRunner(true).runner,
       audit: createAuditSpy().log,
       runtime,
+      runtimeName: 'opencode',
+      preflightProbes: readyDoctorProbes(),
+      verifier: provingVerifier(),
       conventions: 'conventional commits',
       ask: () => Promise.resolve('y'),
       out: () => undefined,

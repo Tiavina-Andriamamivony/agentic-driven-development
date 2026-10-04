@@ -1,3 +1,4 @@
+import { AgentLogSink } from './agent-log.ts';
 import { NodeAuditLog } from '@lou/audit';
 import type { AuditLog, AuditEventPayload } from '@lou/audit';
 import { RunBudget } from '@lou/budget';
@@ -32,11 +33,17 @@ import { ReviewerAgent } from '@lou/reviewer';
 import { Workflow } from '@lou/state-machine';
 import { NodeTestRunner } from '@lou/test-runner';
 import type { TestRunner } from '@lou/test-runner';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { createOpenCodeSteps } from './opencode-steps.ts';
+import { createRealDoctorProbes } from '../doctor/real-probes.ts';
+import type { DoctorProbes } from '../doctor/doctor-command.ts';
+import { RedactingAuditLog } from './redacting-audit-log.ts';
+import { runPreflight } from './run-preflight.ts';
+import type { VerificationRunner } from './run-preflight.ts';
+import { pruneRunCycles } from './run-retention.ts';
 import { mapWithConcurrency } from './concurrency.ts';
 import { createTerminalKeeper } from './terminal-keeper.ts';
 import { createRunTrace } from './run-trace.ts';
@@ -53,6 +60,9 @@ export interface RunEnvironment {
   readonly tests: TestRunner;
   readonly audit: AuditLog;
   readonly runtime: AgentRuntime;
+  readonly runtimeName: AgentRuntimeName;
+  readonly preflightProbes?: DoctorProbes;
+  readonly verifier: VerificationRunner;
   readonly conventions: string;
   readonly ask: (question: string) => Promise<string>;
   readonly out: (line: string) => void;
@@ -413,6 +423,15 @@ async function removeWorktreeBestEffort(worktrees: GitWorktrees, path: string): 
   try {
     await worktrees.remove(path);
   } catch {
+    dropLeftoverDirectory(path);
+  }
+  dropLeftoverDirectory(path);
+}
+
+function dropLeftoverDirectory(path: string): void {
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch {
     return;
   }
 }
@@ -462,6 +481,8 @@ interface RunTicketWiring {
   readonly ask?: (question: string) => Promise<string>;
   readonly isTty?: boolean;
   readonly rawOut?: (text: string) => void;
+  readonly preflightProbes?: DoctorProbes;
+  readonly preflightVerifier?: VerificationRunner;
 }
 
 interface RunTicketRequest {
@@ -501,13 +522,21 @@ function buildAdapters(
       }),
     tests:
       wiring.tests ?? new NodeTestRunner({ runner: createSandboxedRunner(workspace, TESTS_ROLE) }),
-    audit: wiring.audit ?? new NodeAuditLog({ file: auditFile }),
+    audit: new RedactingAuditLog(wiring.audit ?? new NodeAuditLog({ file: auditFile })),
     runtime:
       wiring.runtime ??
       createAgentRuntime(
         options.runtime ?? DEFAULT_AGENT_RUNTIME,
         createSandboxedRunner(workspace, AGENT_ROLE),
       ),
+  };
+}
+
+function optionalWiring(wiring: RunTicketWiring): Partial<RunEnvironment> {
+  return {
+    ...(wiring.preflightProbes !== undefined ? { preflightProbes: wiring.preflightProbes } : {}),
+    ...(wiring.isTty !== undefined ? { isTty: wiring.isTty } : {}),
+    ...(wiring.rawOut !== undefined ? { rawOut: wiring.rawOut } : {}),
   };
 }
 
@@ -520,14 +549,17 @@ export function buildRunEnvironment(request: RunTicketRequest): RunEnvironment {
     root: options.cwd,
     workspace,
     ...buildAdapters(workspace, auditFile, options, wiring),
+    runtimeName: options.runtime ?? DEFAULT_AGENT_RUNTIME,
+    ...optionalWiring(wiring),
+    verifier:
+      wiring.preflightVerifier ??
+      new NodeTestRunner({ runner: createSandboxedRunner(options.cwd, TESTS_ROLE) }),
     conventions: 'conventional commits',
     ask: wiring.ask ?? terminalQuestion,
     out: (line) => {
       options.out(many ? `[#${issueNumber}] ${line}` : line);
     },
     dryRun: options.dryRun,
-    ...(wiring.isTty !== undefined ? { isTty: wiring.isTty } : {}),
-    ...(wiring.rawOut !== undefined ? { rawOut: wiring.rawOut } : {}),
     summarize: writeRunSummaryFile(options.cwd),
     ...agentSettings(options),
     ...(options.maxCostUsd !== undefined ? { maxCostUsd: options.maxCostUsd } : {}),
@@ -559,28 +591,91 @@ function writeRunSummaryFile(workspace: string): (summary: RunSummary) => Promis
   };
 }
 
-export async function runTicket(env: RunEnvironment): Promise<number> {
-  const issue = await readIssue(env);
-  if (issue === null) {
-    return 1;
-  }
-  if (issue.state === 'CLOSED') {
-    env.out(`Issue #${issue.number} is already closed.`);
-    return 1;
-  }
-  const runtime = boundedRuntime(env);
-  const constitution = await loadConstitution(env.root, env.out);
-  const style = createStyler(env.isTty ?? process.stdout.isTTY);
-  const trace = startTrace(env, issue, style);
-  const steps = createOpenCodeSteps({
+interface LoggedSteps {
+  readonly env: RunEnvironment;
+  readonly runtime: AgentRuntime;
+  readonly constitution: readonly Article[];
+  readonly trace: RunTrace;
+  readonly log: AgentLogSink;
+}
+
+function loggedSteps(input: LoggedSteps): OrchestratorSteps {
+  const { env, runtime, constitution, trace, log } = input;
+  return createOpenCodeSteps({
     runtime,
     workspace: env.workspace,
     constitution: formatConstitution(constitution),
     onOutput: (chunk) => {
-      trace.think(chunk);
+      log.write(chunk);
+    },
+    onActivity: (activity) => {
+      trace.activity(activity);
     },
     ...agentSettings(env),
   });
+}
+
+async function openIssue(env: RunEnvironment): Promise<GitHubIssue | null> {
+  const issue = await readIssue(env);
+  if (issue === null) {
+    return null;
+  }
+  if (issue.state === 'CLOSED') {
+    env.out(`Issue #${issue.number} is already closed.`);
+    return null;
+  }
+  return issue;
+}
+
+async function preflightOk(env: RunEnvironment, style: Styler): Promise<boolean> {
+  const probes = env.preflightProbes ?? createRealDoctorProbes(env.root);
+  const outcome = await runPreflight(probes, env.root, env.runtimeName, env.verifier);
+  await recordPreflight(env, outcome);
+  if (outcome.ok) {
+    return true;
+  }
+  env.out('');
+  env.out(style.red('Preflight failed — nothing was run and nothing was spent.'));
+  for (const finding of outcome.findings) {
+    env.out(`  ${style.check(false)}  ${finding.label} — ${finding.detail}`);
+    env.out(`     ${style.dim(`→ ${finding.remedy}`)}`);
+  }
+  env.out('');
+  return false;
+}
+
+async function recordPreflight(
+  env: RunEnvironment,
+  outcome: {
+    readonly ok: boolean;
+    readonly findings: readonly { label: string; detail: string }[];
+  },
+): Promise<void> {
+  await env.audit.record({
+    runId: `run-${env.issueNumber}`,
+    event: 'test_finished',
+    target: 'preflight',
+    result: outcome.ok ? 'success' : 'failure',
+    reason: outcome.ok
+      ? 'every prerequisite was ready'
+      : outcome.findings.map((f) => `${f.label}: ${f.detail}`).join('; '),
+  });
+}
+
+export async function runTicket(env: RunEnvironment): Promise<number> {
+  const issue = await openIssue(env);
+  if (issue === null) {
+    return 1;
+  }
+  const style = createStyler(env.isTty ?? process.stdout.isTTY);
+  if (!(await preflightOk(env, style))) {
+    return 1;
+  }
+  const runtime = boundedRuntime(env);
+  const constitution = await loadConstitution(env.root, env.out);
+  const trace = startTrace(env, issue, style);
+  const log = new AgentLogSink({ directory: agentLogDir(env.root, issue.number) });
+  const steps = loggedSteps({ env, runtime, constitution, trace, log });
   if (env.dryRun) {
     return runDryRun(issue, env, steps, trace);
   }
@@ -592,19 +687,41 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     steps,
     constitution,
     trace,
+    log,
   });
   const outcome = await tracedRun(orchestrator, trace);
-  if (env.summarize !== undefined) {
-    await env.summarize({
-      issueNumber: issue.number,
-      status: outcome.status,
-      startedAt,
-      finishedAt: new Date().toISOString(),
-      ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}),
-      ...(outcome.pullRequest !== undefined ? { pullRequestUrl: outcome.pullRequest.url } : {}),
-    });
-  }
+  await writeSummary(env, issue.number, outcome, startedAt);
+  cleanUpCycle(env, issue.number, style);
   return report(outcome, env.out);
+}
+
+function cleanUpCycle(env: RunEnvironment, issueNumber: number, style: Styler): void {
+  const result = pruneRunCycles(join(env.root, '.lou', 'runs'), issueNumber);
+  if (result.removed.length === 0) {
+    return;
+  }
+  const cycles = result.removed.map((cycle) => `#${cycle}`).join(', ');
+  env.out(style.dim(`Cleaned up ${result.removed.length} old run(s): ${cycles}`));
+}
+
+async function writeSummary(
+  env: RunEnvironment,
+  issueNumber: number,
+  outcome: OrchestratorOutcome,
+  startedAt: string,
+): Promise<void> {
+  const summarize = env.summarize;
+  if (summarize === undefined) {
+    return;
+  }
+  await summarize({
+    issueNumber,
+    status: outcome.status,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}),
+    ...(outcome.pullRequest !== undefined ? { pullRequestUrl: outcome.pullRequest.url } : {}),
+  });
 }
 
 function buildOrchestrator(input: {
@@ -614,8 +731,9 @@ function buildOrchestrator(input: {
   readonly steps: OrchestratorSteps;
   readonly constitution: readonly Article[];
   readonly trace: RunTrace;
+  readonly log: AgentLogSink;
 }): Orchestrator {
-  const { env, issue, runtime, steps, constitution } = input;
+  const { env, issue, runtime, steps, constitution, log } = input;
   return new Orchestrator({
     runId: `run-${issue.number}`,
     issue,
@@ -634,7 +752,7 @@ function buildOrchestrator(input: {
     tests: env.tests,
     git: env.git,
     github: env.github,
-    audit: withTrace(env.audit, input.trace),
+    audit: withTrace(env.audit, input.trace, log),
     conventions: withConstitution(env.conventions, constitution),
   });
 }
@@ -734,14 +852,29 @@ async function readIssue(env: RunEnvironment): Promise<GitHubIssue | null> {
   }
 }
 
-function withTrace(audit: AuditLog, trace: RunTrace): AuditLog {
+function withTrace(audit: AuditLog, trace: RunTrace, log: AgentLogSink): AuditLog {
   return {
     record(payload: AuditEventPayload): Promise<void> {
+      followAgent(log, payload);
       trace.event(payload);
       return audit.record(payload);
     },
     history: () => audit.history(),
   };
+}
+
+function followAgent(log: AgentLogSink, payload: AuditEventPayload): void {
+  if (payload.event === 'agent_started') {
+    log.begin(payload.agent ?? 'agent', payload.runId);
+    return;
+  }
+  if (payload.event === 'agent_finished') {
+    log.end();
+  }
+}
+
+function agentLogDir(root: string, issueNumber: number): string {
+  return join(root, '.lou', 'runs', `run-${issueNumber}`, 'agents');
 }
 
 function report(outcome: OrchestratorOutcome, out: (line: string) => void): number {

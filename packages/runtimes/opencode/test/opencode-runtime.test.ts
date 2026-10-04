@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { AgentActivity } from '@lou/agent-runtime';
 import { OpenCodeRuntime } from '../src/opencode-runtime.ts';
 import { FakeRunner } from './fake-runner.ts';
 
@@ -27,11 +28,31 @@ describe('OpenCodeRuntime', () => {
     expect(runner.calls[0]?.command).toBe('opencode');
     expect(runner.calls[0]?.args).toEqual([
       'run',
+      '--format',
+      'json',
+      '--thinking',
+      '--dir',
+      INPUT.workspace,
       '--agent',
       'developer',
       '--print-logs',
       'implement password reset',
     ]);
+  });
+
+  it('tells opencode which directory to work in', async () => {
+    const runner = new FakeRunner();
+    const runtime = new OpenCodeRuntime({ runner });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(SUCCESS);
+    await pending;
+
+    const args = runner.calls[0]?.args ?? [];
+    const flag = args.indexOf('--dir');
+
+    expect(flag).toBeGreaterThan(-1);
+    expect(args[flag + 1]).toBe(INPUT.workspace);
   });
 
   it('passes the workspace as working directory and a default timeout', async () => {
@@ -158,7 +179,7 @@ describe('OpenCodeRuntime', () => {
     expect(chunks).toEqual(['reading ', 'files']);
   });
 
-  it('omits the live callback entirely when the caller does not ask for it', async () => {
+  it('omits the stderr callback when the caller does not ask for raw output', async () => {
     const runner = new FakeRunner();
     const runtime = new OpenCodeRuntime({ runner });
 
@@ -166,6 +187,72 @@ describe('OpenCodeRuntime', () => {
     runner.complete(SUCCESS);
     await pending;
 
-    expect(runner.calls[0]?.options.onStdout).toBeUndefined();
+    expect(runner.calls[0]?.options.onStderr).toBeUndefined();
+  });
+
+  it('emits structured activities from the event stream', async () => {
+    const runner = new FakeRunner();
+    const runtime = new OpenCodeRuntime({ runner });
+    const events: AgentActivity[] = [];
+
+    const pending = runtime.run({ ...INPUT, onActivity: (a) => events.push(a) });
+    runner.emitStdout('{"type":"reasoning","part":{"type":"reasoning","text":"pondering"}}\n');
+    runner.emitStdout(
+      '{"type":"tool_use","part":{"type":"tool","tool":"read","state":{"status":"completed","title":"a.ts"}}}\n',
+    );
+    runner.emitStdout('{"type":"text","part":{"type":"text","text":"SUMMARY: done"}}\n');
+    runner.complete(SUCCESS);
+    await pending;
+
+    expect(events).toEqual([
+      { kind: 'thinking', text: 'pondering' },
+      { kind: 'tool', tool: 'read', detail: 'a.ts', ok: true },
+      { kind: 'text', text: 'SUMMARY: done' },
+    ]);
+  });
+
+  it('returns the joined text parts as stdout so protocol parsing still works', async () => {
+    const runner = new FakeRunner();
+    const runtime = new OpenCodeRuntime({ runner });
+
+    const pending = runtime.run(INPUT);
+    runner.emitStdout('{"type":"step_start","part":{"type":"step-start"}}\n');
+    runner.emitStdout('{"type":"text","part":{"type":"text","text":"SUMMARY: done"}}\n');
+    runner.emitStdout('{"type":"text","part":{"type":"text","text":"QUESTIONS: none"}}\n');
+    runner.complete({ ...SUCCESS, stdout: 'raw json noise' });
+    const result = await pending;
+
+    expect(result.stdout).toBe('SUMMARY: done\nQUESTIONS: none');
+  });
+
+  it('forwards the raw stream to onOutput for diagnostics', async () => {
+    const runner = new FakeRunner();
+    const runtime = new OpenCodeRuntime({ runner });
+    const chunks: string[] = [];
+
+    const pending = runtime.run({ ...INPUT, onOutput: (chunk) => chunks.push(chunk) });
+    runner.emitStdout('{"type":"text",');
+    runner.emitStdout('"part":{"type":"text","text":"hi"}}\n');
+    runner.complete(SUCCESS);
+    await pending;
+
+    expect(chunks).toEqual(['{"type":"text",', '"part":{"type":"text","text":"hi"}}\n']);
+  });
+
+  it('routes stderr to diagnostics only', async () => {
+    const runner = new FakeRunner();
+    const runtime = new OpenCodeRuntime({ runner });
+    const events: AgentActivity[] = [];
+
+    const pending = runtime.run({
+      ...INPUT,
+      onOutput: () => undefined,
+      onActivity: (a) => events.push(a),
+    });
+    runner.emitStderr('INFO service ready\n');
+    runner.complete(SUCCESS);
+    await pending;
+
+    expect(events).toEqual([]);
   });
 });

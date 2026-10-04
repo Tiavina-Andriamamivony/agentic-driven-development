@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { AgentActivity } from '@lou/agent-runtime';
 import { AgentRunFailedError } from '@lou/agent-runtime';
 import { ClaudeCodeRuntime } from '../src/claude-code-runtime.ts';
 import { FakeRunner } from './fake-runner.ts';
@@ -346,16 +347,33 @@ describe('ClaudeCodeRuntime', () => {
   it('forwards live agent activity to the caller as stdout arrives', async () => {
     const runner = new FakeRunner();
     const runtime = new ClaudeCodeRuntime({ runner });
-    const chunks: string[] = [];
+    const events: AgentActivity[] = [];
 
-    const pending = runtime.run({ ...INPUT, onOutput: (chunk) => chunks.push(chunk) });
+    const pending = runtime.run({ ...INPUT, onActivity: (event) => events.push(event) });
     runner.emitStdout('{"type":"system","subtype":"status","status":"thinking"}\n');
     runner.complete(result(streamResult()));
     await pending;
 
-    expect(chunks).toEqual(['thinking', 'requesting']);
+    expect(events).toEqual([
+      { kind: 'text', text: 'thinking' },
+      { kind: 'text', text: 'requesting' },
+    ]);
     expect(runner.calls[0]?.args).toContain('stream-json');
     expect(runner.calls[0]?.args).toContain('--verbose');
+  });
+
+  it('keeps the raw stream on the diagnostics channel untouched', async () => {
+    const runner = new FakeRunner();
+    const runtime = new ClaudeCodeRuntime({ runner });
+    const chunks: string[] = [];
+    const line = '{"type":"system","subtype":"status","status":"thinking"}\n';
+
+    const pending = runtime.run({ ...INPUT, onOutput: (chunk) => chunks.push(chunk) });
+    runner.emitStdout(line);
+    runner.complete(result(streamResult()));
+    await pending;
+
+    expect(chunks).toEqual([line, streamResult()]);
   });
 
   it('asks Claude for the realtime stream only when the caller wants it live', async () => {
@@ -373,17 +391,17 @@ describe('ClaudeCodeRuntime', () => {
   it('never shows a hook payload to the caller', async () => {
     const runner = new FakeRunner();
     const runtime = new ClaudeCodeRuntime({ runner });
-    const chunks: string[] = [];
+    const events: AgentActivity[] = [];
     const hook =
       '{"type":"system","subtype":"hook_response","output":"' + 'x'.repeat(2000) + '"}\n';
 
-    const pending = runtime.run({ ...INPUT, onOutput: (chunk) => chunks.push(chunk) });
+    const pending = runtime.run({ ...INPUT, onActivity: (event) => events.push(event) });
     runner.emitStdout(hook);
     runner.complete(result(streamResult()));
     await pending;
 
-    expect(chunks.join('')).not.toContain('hook_response');
-    expect(chunks.every((chunk) => chunk.length <= 60)).toBe(true);
+    expect(JSON.stringify(events)).not.toContain('hook_response');
+    expect(events.every((event) => JSON.stringify(event).length <= 60)).toBe(true);
   });
 
   it('reads the cost and tokens out of the stream envelope', async () => {
@@ -413,7 +431,7 @@ describe('ClaudeCodeRuntime', () => {
     await expect(pending).rejects.toThrow('quota exhausted');
   });
 
-  it('omits the live callback entirely when the caller does not ask for it', async () => {
+  it('asks for the plain envelope when the caller wants neither channel', async () => {
     const runner = new FakeRunner();
     const runtime = new ClaudeCodeRuntime({ runner });
 
@@ -421,6 +439,6 @@ describe('ClaudeCodeRuntime', () => {
     runner.complete(result());
     await pending;
 
-    expect(runner.calls[0]?.options.onStdout).toBeUndefined();
+    expect(runner.calls[0]?.args).not.toContain('--verbose');
   });
 });
