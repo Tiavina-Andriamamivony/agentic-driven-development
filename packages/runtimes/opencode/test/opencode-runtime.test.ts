@@ -31,11 +31,28 @@ describe('OpenCodeRuntime', () => {
       '--format',
       'json',
       '--thinking',
+      '--dir',
+      INPUT.workspace,
       '--agent',
       'developer',
       '--print-logs',
       'implement password reset',
     ]);
+  });
+
+  it('tells opencode which directory to work in', async () => {
+    const runner = new FakeRunner();
+    const runtime = new OpenCodeRuntime({ runner });
+
+    const pending = runtime.run(INPUT);
+    runner.complete(SUCCESS);
+    await pending;
+
+    const args = runner.calls[0]?.args ?? [];
+    const flag = args.indexOf('--dir');
+
+    expect(flag).toBeGreaterThan(-1);
+    expect(args[flag + 1]).toBe(INPUT.workspace);
   });
 
   it('passes the workspace as working directory and a default timeout', async () => {

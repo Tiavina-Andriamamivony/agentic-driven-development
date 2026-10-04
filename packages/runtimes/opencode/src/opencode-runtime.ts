@@ -64,7 +64,7 @@ export class OpenCodeRuntime implements AgentRuntime {
   }
 
   private buildArgs(input: AgentRunInput): string[] {
-    const args = ['run', '--format', 'json', '--thinking'];
+    const args = ['run', '--format', 'json', '--thinking', '--dir', input.workspace];
     if (input.agent !== undefined) {
       args.push('--agent', input.agent);
     }
