@@ -862,3 +862,50 @@ describe('reviewer observability', () => {
     expect(out.join('\n')).not.toContain('Run failed');
   });
 });
+
+describe('audit invocation ids', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'lou-invocation-'));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('gives two invocations of the same issue distinct ids', async () => {
+    const { env, audit } = buildEnv(happyReplies());
+
+    await runTicket({ ...env, root });
+    await runTicket({ ...env, root });
+
+    const ids = audit
+      .events()
+      .map((event) => event.invocation)
+      .filter(Boolean);
+    expect(new Set(ids).size).toBeGreaterThan(1);
+  });
+
+  it('stamps the preflight event too, so a refusal is still attributable', async () => {
+    const { env, audit } = buildEnv(happyReplies());
+    const failing: RunEnvironment = {
+      ...env,
+      verifier: { run: () => Promise.resolve({ passed: false, reason: 'no test ran' }) },
+    };
+
+    await runTicket({ ...failing, root });
+
+    const preflight = audit.events().find((event) => event.target === 'preflight');
+    expect(preflight?.invocation).toMatch(/^\d{14,}$/);
+  });
+
+  it('stamps every event of one invocation with the same id', async () => {
+    const { env, audit } = buildEnv(happyReplies());
+
+    await runTicket({ ...env, root });
+
+    const ids = audit.events().map((event) => event.invocation);
+    expect(new Set(ids).size).toBe(1);
+  });
+});

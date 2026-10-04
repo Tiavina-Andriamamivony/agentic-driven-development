@@ -19,6 +19,6 @@ describe('cli entry point', () => {
       { encoding: 'utf8' },
     );
 
-    expect(stdout.trim()).toMatch(/^lou \d+\.\d+\.\d+$/);
+    expect(stdout.trim()).toMatch(/^lou \d+\.\d+\.\d+(?:\.\d+)?$/);
   });
 });

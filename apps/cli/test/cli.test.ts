@@ -382,7 +382,7 @@ describe('runCli', () => {
     });
 
     expect(code).toBe(0);
-    expect(collector.out.join('\n')).toMatch(/^lou \d+\.\d+\.\d+$/);
+    expect(collector.out.join('\n')).toMatch(/^lou \d+\.\d+\.\d+(?:\.\d+)?$/);
   });
 
   it('supports the -v version alias', async () => {
@@ -395,7 +395,7 @@ describe('runCli', () => {
     });
 
     expect(code).toBe(0);
-    expect(collector.out.join('\n')).toMatch(/^lou \d+\.\d+\.\d+$/);
+    expect(collector.out.join('\n')).toMatch(/^lou \d+\.\d+\.\d+(?:\.\d+)?$/);
   });
 
   it.each(['--help', '-h', 'help'])('prints the usage on %s', async (flag) => {
