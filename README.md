@@ -110,7 +110,7 @@ The installer is short and readable — you can read it before running it
 (`apps/cli/install/install.sh`). Useful options:
 
 ```bash
-bash install.sh --version v0.6.1   # pin a specific release instead of main
+bash install.sh --version v0.7.0.0  # pin a specific release instead of main
 bash install.sh --prefix ~/.lou    # install somewhere else (default: ~/.lou)
 bash install.sh --help             # all options
 ```
@@ -118,7 +118,7 @@ bash install.sh --help             # all options
 **Check the installation:**
 
 ```bash
-lou --version    # e.g. lou 0.6.1
+lou --version    # e.g. lou 0.7.0.0
 lou doctor       # verifies every prerequisite
 ```
 
@@ -329,7 +329,7 @@ Updates Lou to the latest release.
 
 ```bash
 lou upgrade            # latest version
-lou upgrade v0.6.1     # a specific version
+lou upgrade v0.7.0.0    # a specific version
 lou upgrade --help
 ```
 
@@ -344,7 +344,7 @@ lou -h
 ```
 
 Prints the list of commands and exits. `lou --version` (or `lou -v`) prints the installed
-version, for example `lou 0.6.1`.
+version, for example `lou 0.7.0.0`.
 
 ### All `lou run` options
 
