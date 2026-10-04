@@ -2,13 +2,14 @@ import type { AuditLog, AuditEventPayload, AuditEventType } from '@lou/audit';
 import { BudgetExceededError } from '@lou/budget';
 import type { GitAdapter } from '@lou/git';
 import type { GitHubAdapter, GitHubIssue } from '@lou/github';
-import type { ReviewerAgent } from '@lou/reviewer';
+import type { ReviewDecision, ReviewRequest, ReviewerAgent } from '@lou/reviewer';
 import type { Command, Phase } from '@lou/state-machine';
 import { COMMANDS, PHASES, Workflow } from '@lou/state-machine';
 import type { TestResult, TestRunner } from '@lou/test-runner';
 import { InterventionBudgetError } from './intervention-budget-error.ts';
 import { UnrunnableTestsError } from './unrunnable-tests-error.ts';
 import { buildPullRequestBody } from './pr-body.ts';
+import { reviewOutcome } from './review-outcome.ts';
 import { testOutcome } from './test-outcome.ts';
 import type {
   ApprovalDecision,
@@ -230,7 +231,22 @@ export class Orchestrator {
 
   private async review(): Promise<OrchestratorOutcome | null> {
     await this.audit.record(this.event('review_started', {}));
-    const decision = await this.reviewer.review({
+    const decision = await this.askReviewer();
+    this.reviewNote = { verdict: decision.verdict, reason: decision.reason };
+    await this.audit.record(this.event('review_finished', reviewOutcome(decision)));
+    return this.applyVerdict(decision);
+  }
+
+  private async askReviewer(): Promise<ReviewDecision> {
+    try {
+      return await this.runAgent('reviewer', () => this.reviewer.review(this.reviewRequest()));
+    } catch (error) {
+      return { verdict: 'UNREADABLE', reason: errorMessage(error), command: null, rawOutput: '' };
+    }
+  }
+
+  private reviewRequest(): ReviewRequest {
+    return {
       runId: this.runId,
       title: this.plan.title,
       description: this.issue.body,
@@ -238,19 +254,19 @@ export class Orchestrator {
       testReport: this.testReport,
       conventions: this.conventions,
       workspace: this.workspace,
-    });
-    this.reviewNote = { verdict: decision.verdict, reason: decision.reason };
-    await this.audit.record(
-      this.event('review_finished', {
-        result: decision.verdict === 'APPROVED' ? 'success' : 'failure',
-      }),
-    );
+    };
+  }
+
+  private applyVerdict(decision: ReviewDecision): OrchestratorOutcome | null {
+    if (decision.verdict === 'UNREADABLE') {
+      return this.intervention(decision.reason);
+    }
     if (decision.verdict === 'BLOCKED') {
       return { status: 'blocked', finalPhase: this.workflow.phase, reason: decision.reason };
     }
-    this.apply(
-      decision.verdict === 'APPROVED' ? COMMANDS.REVIEW_APPROVED : COMMANDS.CHANGES_REQUESTED,
-    );
+    const command =
+      decision.verdict === 'APPROVED' ? COMMANDS.REVIEW_APPROVED : COMMANDS.CHANGES_REQUESTED;
+    this.apply(command);
     return null;
   }
 

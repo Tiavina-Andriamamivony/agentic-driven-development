@@ -733,7 +733,7 @@ function buildOrchestrator(input: {
   readonly trace: RunTrace;
   readonly log: AgentLogSink;
 }): Orchestrator {
-  const { env, issue, runtime, steps, constitution, log } = input;
+  const { env, issue, runtime, steps, constitution, trace, log } = input;
   return new Orchestrator({
     runId: `run-${issue.number}`,
     issue,
@@ -747,6 +747,12 @@ function buildOrchestrator(input: {
     }),
     reviewer: new ReviewerAgent({
       runtime,
+      onOutput: (chunk) => {
+        log.write(chunk);
+      },
+      onActivity: (activity) => {
+        trace.activity(activity);
+      },
       ...agentSettings(env),
     }),
     tests: env.tests,

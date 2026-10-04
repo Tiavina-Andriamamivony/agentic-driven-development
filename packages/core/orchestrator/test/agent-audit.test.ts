@@ -78,6 +78,8 @@ describe('agent audit trail', () => {
       { event: 'agent_finished', agent: 'test-writer' },
       { event: 'agent_started', agent: 'developer' },
       { event: 'agent_finished', agent: 'developer' },
+      { event: 'agent_started', agent: 'reviewer' },
+      { event: 'agent_finished', agent: 'reviewer' },
     ]);
   });
 
@@ -87,7 +89,7 @@ describe('agent audit trail', () => {
     await orchestrator.run();
 
     const finished = audit.events().filter((entry) => entry.event === 'agent_finished');
-    expect(finished).toHaveLength(4);
+    expect(finished).toHaveLength(5);
     expect(finished.every((entry) => entry.result === 'success')).toBe(true);
   });
 

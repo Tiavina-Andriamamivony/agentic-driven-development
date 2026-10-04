@@ -1,8 +1,8 @@
-import type { AgentRuntime } from '@lou/agent-runtime';
+import type { AgentRunInput, AgentRuntime } from '@lou/agent-runtime';
 import type { Command } from '@lou/state-machine';
 import { COMMANDS } from '@lou/state-machine';
 
-export type ReviewVerdict = 'APPROVED' | 'CHANGES_REQUESTED' | 'BLOCKED';
+export type ReviewVerdict = 'APPROVED' | 'CHANGES_REQUESTED' | 'BLOCKED' | 'UNREADABLE';
 
 export interface ReviewRequest {
   readonly runId: string;
@@ -18,6 +18,7 @@ export interface ReviewDecision {
   readonly verdict: ReviewVerdict;
   readonly reason: string;
   readonly command: Command | null;
+  readonly rawOutput: string;
 }
 
 export interface ReviewerAgentOptions {
@@ -25,10 +26,17 @@ export interface ReviewerAgentOptions {
   readonly model?: string;
   readonly modelsByAgent?: Readonly<Record<string, string>>;
   readonly mcp?: Readonly<Record<string, string>>;
+  readonly onOutput?: AgentRunInput['onOutput'];
+  readonly onActivity?: AgentRunInput['onActivity'];
 }
 
-const VERDICT_PATTERN = /^VERDICT\s*:\s*(APPROVED|CHANGES_REQUESTED|BLOCKED)\s*$/im;
-const REASON_PATTERN = /^REASON\s*:\s*(.+)$/im;
+const READABLE_VERDICTS: readonly ReviewVerdict[] = ['APPROVED', 'CHANGES_REQUESTED', 'BLOCKED'];
+const VERDICT_LABEL = /verdict/i;
+const REASON_LINE = /^reason\s*:\s*(.+)$/i;
+const MARKDOWN_NOISE = /[*#>`]/g;
+const DECORATION = /[*_#>`\s]/g;
+const UNREADABLE_REASON = 'reviewer output did not contain a readable VERDICT line';
+const NO_REASON = '(no reason provided)';
 
 const VERDICT_TO_COMMAND: Readonly<Partial<Record<ReviewVerdict, Command>>> = {
   APPROVED: COMMANDS.REVIEW_APPROVED,
@@ -50,6 +58,7 @@ export class ReviewerAgent {
       workspace: request.workspace,
       ...withModel(this.options.modelsByAgent?.['reviewer'] ?? this.options.model),
       ...(this.options.mcp !== undefined ? { mcp: this.options.mcp } : {}),
+      ...withSinks(this.options),
     });
     return parseReview(result.stdout);
   }
@@ -57,6 +66,13 @@ export class ReviewerAgent {
 
 function withModel(model: string | undefined): { readonly model?: string } {
   return model === undefined ? {} : { model };
+}
+
+function withSinks(options: ReviewerAgentOptions): Pick<AgentRunInput, 'onOutput' | 'onActivity'> {
+  return {
+    ...(options.onOutput !== undefined ? { onOutput: options.onOutput } : {}),
+    ...(options.onActivity !== undefined ? { onActivity: options.onActivity } : {}),
+  };
 }
 
 function buildReviewInstructions(request: ReviewRequest): string {
@@ -85,30 +101,61 @@ function buildReviewInstructions(request: ReviewRequest): string {
     'Return APPROVED when the change is acceptable.',
     'Return CHANGES_REQUESTED otherwise.',
     '',
-    'Reply exactly with:',
+    'Reply with two plain-text lines, no markdown, no commentary:',
     'VERDICT: <APPROVED|CHANGES_REQUESTED|BLOCKED>',
     'REASON: <one line>',
   ].join('\n');
 }
 
 function parseReview(stdout: string): ReviewDecision {
-  const verdictMatch = VERDICT_PATTERN.exec(stdout);
-  const verdict = toVerdict(verdictMatch?.[1]);
+  const verdict = readVerdict(stdout);
   if (verdict === undefined) {
-    throw new Error('reviewer output must contain a VERDICT line with a known verdict');
+    return { verdict: 'UNREADABLE', reason: UNREADABLE_REASON, command: null, rawOutput: stdout };
   }
-  const reason = REASON_PATTERN.exec(stdout)?.[1]?.trim() ?? '(no reason provided)';
   return {
     verdict,
-    reason,
+    reason: readReason(stdout),
     command: VERDICT_TO_COMMAND[verdict] ?? null,
+    rawOutput: stdout,
   };
 }
 
-function toVerdict(value: string | undefined): ReviewVerdict | undefined {
-  const normalized = value?.toUpperCase();
-  if (normalized === 'APPROVED' || normalized === 'CHANGES_REQUESTED' || normalized === 'BLOCKED') {
-    return normalized;
-  }
-  return undefined;
+function readVerdict(stdout: string): ReviewVerdict | undefined {
+  const lines = stdout.split('\n');
+  return labelledVerdict(lines) ?? bareVerdict(lines);
+}
+
+function labelledVerdict(lines: readonly string[]): ReviewVerdict | undefined {
+  return verdictIn(lines.filter((line) => VERDICT_LABEL.test(line)));
+}
+
+function bareVerdict(lines: readonly string[]): ReviewVerdict | undefined {
+  const decorated = lines.map((line) => line.replace(DECORATION, ''));
+  return READABLE_VERDICTS.find((verdict) => decorated.includes(verdict));
+}
+
+function verdictIn(lines: readonly string[]): ReviewVerdict | undefined {
+  const shouted = lines.map((line) => line.toUpperCase());
+  return READABLE_VERDICTS.find((verdict) => shouted.some((line) => line.includes(verdict)));
+}
+
+function readReason(stdout: string): string {
+  const labelled = stdout
+    .split('\n')
+    .map((line) => line.replace(MARKDOWN_NOISE, '').trim())
+    .map((line) => REASON_LINE.exec(line)?.[1]?.trim())
+    .find((value) => value !== undefined && value.length > 0);
+  return labelled ?? proseLine(stdout);
+}
+
+function proseLine(stdout: string): string {
+  const prose = stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && !mentionsVerdict(line));
+  return prose ?? NO_REASON;
+}
+
+function mentionsVerdict(line: string): boolean {
+  return VERDICT_LABEL.test(line) || verdictIn([line]) !== undefined;
 }

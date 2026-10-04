@@ -1,3 +1,4 @@
+import type { AgentRuntime } from '@lou/agent-runtime';
 import { EVENT_TYPES } from '@lou/audit';
 import type { GitHubIssue } from '@lou/github';
 import { ReviewerAgent } from '@lou/reviewer';
@@ -35,6 +36,12 @@ function reviewerReply(stdout: string): RuntimeReply {
 
 const APPROVED_STDOUT_REPLIES: readonly RuntimeReply[] = [reviewerReply(APPROVED_STDOUT)];
 
+const CRASHING_REVIEWER_RUNTIME: AgentRuntime = {
+  run: () => Promise.reject(new Error('opencode run failed: exit 1')),
+  getStatus: () => Promise.resolve({ runId: '', running: false, finished: true }),
+  interrupt: () => Promise.resolve(),
+};
+
 interface HarnessOptions {
   readonly plan?: PlanDraft;
   readonly questions?: readonly string[];
@@ -42,6 +49,7 @@ interface HarnessOptions {
   readonly reviewDecisions?: readonly boolean[];
   readonly testScripts?: readonly TestRunScript[];
   readonly reviewerReplies?: readonly RuntimeReply[];
+  readonly reviewer?: ReviewerAgent;
   readonly keeperAnswers?: readonly string[];
   readonly changedFiles?: {
     readonly tests: readonly string[];
@@ -63,7 +71,7 @@ function buildHarness(options: HarnessOptions = {}) {
   });
   const steps = createSteps(plan, options.questions, 'implemented', options.changedFiles);
   const runtime = new RuntimeRecorder(options.reviewerReplies ?? APPROVED_STDOUT_REPLIES);
-  const reviewer = new ReviewerAgent({ runtime });
+  const reviewer = options.reviewer ?? new ReviewerAgent({ runtime });
   const orchestrator = new Orchestrator({
     runId: 'RUN-002',
     issue: ISSUE,
@@ -195,6 +203,42 @@ describe('Orchestrator', () => {
     expect(workflow.phase).toBe(PHASES.REVIEW);
     expect(git.pushes).toBe(0);
     expect(github.created).toHaveLength(0);
+  });
+
+  it('asks a human when the reviewer verdict cannot be read', async () => {
+    const { orchestrator, workflow } = buildHarness({
+      reviewerReplies: [reviewerReply('The diff looks reasonable to me overall.')],
+    });
+
+    const outcome = await orchestrator.run();
+
+    expect(outcome.status).toBe('human-intervention');
+    expect(outcome.reason).toContain('VERDICT');
+    expect(workflow.phase).toBe(PHASES.REVIEW);
+  });
+
+  it('keeps the unreadable reviewer answer on the audit trail', async () => {
+    const { orchestrator, audit } = buildHarness({
+      reviewerReplies: [reviewerReply('The diff looks reasonable to me overall.')],
+    });
+
+    await orchestrator.run();
+
+    const finished = audit.events().find((entry) => entry.event === 'review_finished');
+    expect(finished?.result).toBe('failure');
+    expect(finished?.excerpt).toContain('The diff looks reasonable to me overall.');
+  });
+
+  it('asks a human when the reviewer itself crashes', async () => {
+    const { orchestrator, workflow } = buildHarness({
+      reviewer: new ReviewerAgent({ runtime: CRASHING_REVIEWER_RUNTIME }),
+    });
+
+    const outcome = await orchestrator.run();
+
+    expect(outcome.status).toBe('human-intervention');
+    expect(outcome.reason).toContain('opencode run failed');
+    expect(workflow.phase).toBe(PHASES.REVIEW);
   });
 
   it('re-implements after a verification failure', async () => {

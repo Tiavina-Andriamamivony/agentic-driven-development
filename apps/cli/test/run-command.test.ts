@@ -1,8 +1,11 @@
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { GitHubAdapter, GitHubIssue } from '@lou/github';
 import type { AgentRunResult } from '@lou/agent-runtime';
 import { ClaudeCodeRuntime } from '@lou/claude-code-runtime';
 import { OpenCodeRuntime } from '@lou/opencode-runtime';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RunEnvironment, RunSummary } from '../src/run/run-command';
 import type { GitWorktrees } from '../src/run/run-command';
 import {
@@ -821,5 +824,41 @@ describe('inWorktree', () => {
     const result = await inWorktree(true, worktrees, '/wt', () => Promise.resolve(3));
 
     expect(result).toBe(3);
+  });
+});
+
+describe('reviewer observability', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'lou-reviewer-log-'));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function reviewerLog(): string {
+    return join(root, '.lou', 'runs', 'run-1', 'agents', 'reviewer-run-1.log');
+  }
+
+  it('writes a log file for the reviewer like every other agent', async () => {
+    const { env } = buildEnv(happyReplies());
+
+    await runTicket({ ...env, root });
+
+    expect(existsSync(reviewerLog())).toBe(true);
+  });
+
+  it('asks a human instead of crashing when the reviewer verdict is unreadable', async () => {
+    const replies = [...happyReplies()];
+    replies[replies.length - 1] = resultFor('Looks fine, but I forgot the label.');
+    const { env, out } = buildEnv(replies);
+
+    const code = await runTicket({ ...env, root });
+
+    expect(code).toBe(1);
+    expect(out.join('\n')).toContain('Needs human intervention');
+    expect(out.join('\n')).not.toContain('Run failed');
   });
 });
