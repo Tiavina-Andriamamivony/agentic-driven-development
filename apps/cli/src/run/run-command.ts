@@ -631,10 +631,14 @@ function newInvocationId(): string {
   return new Date().toISOString().replace(/[^0-9]/g, '');
 }
 
-async function preflightOk(env: RunEnvironment, style: Styler): Promise<boolean> {
+async function preflightOk(
+  env: RunEnvironment,
+  style: Styler,
+  invocationId: string,
+): Promise<boolean> {
   const probes = env.preflightProbes ?? createRealDoctorProbes(env.root);
   const outcome = await runPreflight(probes, env.root, env.runtimeName, env.verifier);
-  await recordPreflight(env, outcome, newInvocationId());
+  await recordPreflight(env, outcome, invocationId);
   if (outcome.ok) {
     return true;
   }
@@ -674,7 +678,8 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     return 1;
   }
   const style = createStyler(env.isTty ?? process.stdout.isTTY);
-  if (!(await preflightOk(env, style))) {
+  const invocation = newInvocationId();
+  if (!(await preflightOk(env, style, invocation))) {
     return 1;
   }
   const runtime = boundedRuntime(env);
@@ -686,7 +691,6 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     return runDryRun(issue, env, steps, trace);
   }
   const startedAt = new Date().toISOString();
-  const invocation = newInvocationId();
   const orchestrator = buildOrchestrator({
     env,
     issue,
