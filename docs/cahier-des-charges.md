@@ -889,8 +889,13 @@ TEST_VERIFICATION
         │
         ├── PASS ──────► IMPLEMENTATION
         │
-        └── FAIL ──────► TEST_ANALYSIS
+        └── FAIL ──────► IMPLEMENTATION
 ```
+
+En test-first, un test rouge juste après son écriture est l'état attendu : le code
+n'existe pas encore. `FAIL` est donc un signal, pas une erreur, et il ne consomme pas
+d'itération. Réécrire des tests déjà corrects ne les rend pas plus justes ; la boucle
+d'itération appartient au développeur, qui corrige le code et non la spécification.
 
 Avec limite :
 
@@ -902,6 +907,14 @@ Au-delà :
 
 ```text
 HUMAN_INTERVENTION_REQUIRED
+```
+
+Répartition des budgets d'itération :
+
+```text
+PLAN               : 5 re-planifications après rejet humain
+IMPLEMENTATION     : 5 corrections après échec de vérification ou de revue
+TEST_IMPLEMENTATION: 0 — un test juste n'est pas réécrit pour le faire passer
 ```
 
 ---

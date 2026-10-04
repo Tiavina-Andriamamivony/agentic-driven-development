@@ -2,7 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { Workflow } from '../src/workflow.ts';
 import { PHASES } from '../src/phases.ts';
 import { COMMANDS } from '../src/commands.ts';
-import { HAPPY_PATH_COMMANDS, UP_TO_REVIEW_COMMANDS } from './fixtures.ts';
+import {
+  HAPPY_PATH_COMMANDS,
+  UP_TO_REVIEW_COMMANDS,
+  UP_TO_TEST_VERIFICATION_COMMANDS,
+} from './fixtures.ts';
+
+function redTestsHandover(): Workflow {
+  const workflow = new Workflow();
+  for (const command of UP_TO_TEST_VERIFICATION_COMMANDS) {
+    workflow.apply(command);
+  }
+  workflow.apply(COMMANDS.TESTS_FAIL);
+  return workflow;
+}
 
 describe('Workflow', () => {
   it('starts at TICKET_RECEIVED', () => {
@@ -129,22 +142,41 @@ describe('Workflow', () => {
     expect(result.reason).toContain('terminal');
   });
 
-  it('escapes the test loop after the iteration budget is exhausted', () => {
+  it('hands red tests to the developer instead of rewriting them', () => {
     const workflow = new Workflow();
-    workflow.apply(COMMANDS.START_DISCOVERY);
-    workflow.apply(COMMANDS.FINISH_DISCOVERY);
-    workflow.apply(COMMANDS.FINISH_QUESTIONS);
-    workflow.apply(COMMANDS.PLAN_PROPOSED);
-    workflow.apply(COMMANDS.APPROVE_PLAN);
-    workflow.apply(COMMANDS.TESTS_DESIGNED);
-
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      workflow.apply(COMMANDS.TESTS_COMPLETE);
-      expect(workflow.apply(COMMANDS.TESTS_FAIL).status).toBe('accepted');
+    for (const command of UP_TO_TEST_VERIFICATION_COMMANDS) {
+      workflow.apply(command);
     }
-    workflow.apply(COMMANDS.TESTS_COMPLETE);
 
     const result = workflow.apply(COMMANDS.TESTS_FAIL);
+
+    expect(result.status).toBe('accepted');
+    expect(workflow.phase).toBe(PHASES.IMPLEMENTATION);
+  });
+
+  it('gives the developer the whole budget after red tests hand over', () => {
+    const workflow = redTestsHandover();
+    const attempts: string[] = [];
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      workflow.apply(COMMANDS.IMPLEMENTATION_COMPLETE);
+      attempts.push(workflow.apply(COMMANDS.VERIFICATION_FAIL).status);
+    }
+
+    expect(attempts.filter((status) => status === 'accepted')).toHaveLength(5);
+    expect(attempts.at(-1)).toBe('intervention-required');
+  });
+
+  it('escapes the implementation loop after the iteration budget is exhausted', () => {
+    const workflow = redTestsHandover();
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      workflow.apply(COMMANDS.IMPLEMENTATION_COMPLETE);
+      expect(workflow.apply(COMMANDS.VERIFICATION_FAIL).status).toBe('accepted');
+    }
+    workflow.apply(COMMANDS.IMPLEMENTATION_COMPLETE);
+
+    const result = workflow.apply(COMMANDS.VERIFICATION_FAIL);
 
     expect(result.status).toBe('intervention-required');
     expect(workflow.phase).toBe(PHASES.HUMAN_INTERVENTION_REQUIRED);

@@ -608,6 +608,18 @@ See [Honest status](#honest-status) for what this does and does not cover.
 | Auditability      | Barely                        | Barely                    | Every decision recorded                                      |
 | Model portability | Tied to one provider          | Tied to one provider      | Model-agnostic by design                                     |
 
+> ⚠️ **Pre-1.0 software. Use it on a branch, not on your main line.**
+>
+> Lou is under active development and the release numbering follows semver strictly:
+> every version below `1.0.0` is, by definition, unstable. Expect breaking changes to
+> commands, prompts, audit schema and the state machine between releases.
+>
+> **Do not grant Lou full trust until `1.0.0`.** Run it on a throwaway repository or a
+> dedicated branch, keep an eye on the diff it produces, and read the audit trail before
+> you merge. Lou gates the commands _it_ spawns and requires two human approvals, but it
+> does not confine the tools an agent runs inside its own CLI session (see
+> [Honest status](#honest-status)).
+
 ## Honest status
 
 What works, and what does not. A green test suite is not evidence here: it stayed green
@@ -652,13 +664,13 @@ emits JSON Lines and closes with a `type: "result"` object carrying `is_error`,
 
 ## Roadmap
 
-| Phase | Focus                                                                                    |
-| ----- | ---------------------------------------------------------------------------------------- |
-| 0     | Proof of concept: CLI + agent runtime + git + manual ticket + plan + tests + review loop |
-| 1     | MVP: GitHub issues/PRs, policy engine, project constitution, human gates, audit, sandbox |
-| 2     | Agent platform: multiple agents/models, MCP, model routing, cost control                 |
-| 3     | Team/enterprise: organizational policies, RBAC, shared projects, compliance              |
-| 4     | Ecosystem: Linear, Jira, GitLab, cloud environments, plugin marketplace                  |
+| Phase | Focus                                                                                     |
+| ----- | ----------------------------------------------------------------------------------------- |
+| 0.x   | Current: unstable, opt-in, branch-only. Semver is strict — anything below 1.0.0 may break |
+| 1     | MVP: GitHub issues/PRs, policy engine, project constitution, human gates, audit, sandbox  |
+| 2     | Agent platform: multiple agents/models, MCP, model routing, cost control                  |
+| 3     | Team/enterprise: organizational policies, RBAC, shared projects, compliance               |
+| 4     | Ecosystem: Linear, Jira, GitLab, cloud environments, plugin marketplace                   |
 
 MVP scope is fixed in the [product specification](docs/cahier-des-charges.md) (§47, in
 French) — the design contract this repository implements.
