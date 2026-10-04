@@ -70,9 +70,9 @@ export const TRANSITION_RULES: readonly TransitionRule[] = [
   {
     from: PHASES.TEST_VERIFICATION,
     command: COMMANDS.TESTS_FAIL,
-    to: PHASES.TEST_IMPLEMENTATION,
-    consumesIteration: true,
-    loopRegion: PHASES.TEST_IMPLEMENTATION,
+    to: PHASES.IMPLEMENTATION,
+    consumesIteration: false,
+    loopRegion: null,
   },
   {
     from: PHASES.IMPLEMENTATION,
