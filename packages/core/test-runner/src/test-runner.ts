@@ -12,6 +12,8 @@ export interface TestResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly interrupted: boolean;
+  readonly reason?: string;
+  readonly retryable?: boolean;
 }
 
 export interface TestRunner {

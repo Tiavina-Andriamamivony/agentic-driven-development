@@ -23,7 +23,10 @@ interface TraceContext {
   readonly afterCode: boolean;
 }
 
-type Handler = (payload: AuditEventPayload, context: TraceContext) => TraceStep;
+type Handler = (
+  payload: AuditEventPayload,
+  context: TraceContext,
+) => TraceStep | readonly TraceStep[];
 
 const QUIET: TraceStep = { kind: 'quiet' };
 const TESTS = 'tests';
@@ -106,10 +109,18 @@ function reviewFinished(payload: AuditEventPayload): TraceStep {
   return close('review', detail, approved ? 'good' : 'bad');
 }
 
-function testsFinished(payload: AuditEventPayload, context: TraceContext): TraceStep {
+function testsFinished(
+  payload: AuditEventPayload,
+  context: TraceContext,
+): TraceStep | readonly TraceStep[] {
   const passed = payload.result === 'success';
   const verdict = `${payload.target ?? ''} ${passed ? 'passed' : 'failed'}`.trim();
-  return close(TESTS, withDuration(verdict, context), passed ? 'good' : 'bad');
+  const settled = close(TESTS, withDuration(verdict, context), passed ? 'good' : 'bad');
+  const reason = payload.reason;
+  if (passed || reason === undefined || reason === '') {
+    return settled;
+  }
+  return [settled, note(reason, 'bad')];
 }
 
 function fromTool(payload: AuditEventPayload): TraceStep {
@@ -141,11 +152,18 @@ const HANDLERS: Readonly<Record<AuditEventType, Handler>> = {
   pr_created: (payload) => note(`pull request #${payload.target ?? '?'}`, 'good'),
 };
 
+function asSteps(value: TraceStep | readonly TraceStep[]): readonly TraceStep[] {
+  return 'kind' in value ? [value] : value;
+}
+
 export function translate(payload: AuditEventPayload, context: TraceContext): readonly TraceStep[] {
-  const step = HANDLERS[payload.event](payload, context);
-  const phase = phaseOf(payload, context);
-  if (phase === undefined || phase === context.phase || step.kind === 'quiet') {
-    return [step];
+  const [head, ...rest] = asSteps(HANDLERS[payload.event](payload, context));
+  if (head === undefined) {
+    return [];
   }
-  return [{ kind: 'section', phase }, step];
+  const phase = phaseOf(payload, context);
+  if (phase === undefined || phase === context.phase || head.kind === 'quiet') {
+    return [head, ...rest];
+  }
+  return [{ kind: 'section', phase }, head, ...rest];
 }
