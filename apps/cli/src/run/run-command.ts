@@ -42,6 +42,7 @@ import { createRealDoctorProbes } from '../doctor/real-probes.ts';
 import type { DoctorProbes } from '../doctor/doctor-command.ts';
 import { RedactingAuditLog } from './redacting-audit-log.ts';
 import { runPreflight } from './run-preflight.ts';
+import type { PreflightFinding, PreflightSeverity } from './run-preflight.ts';
 import type { VerificationRunner } from './run-preflight.ts';
 import { pruneRunCycles } from './run-retention.ts';
 import { mapWithConcurrency } from './concurrency.ts';
@@ -130,6 +131,7 @@ const MAX_COST_FLAG = '--max-cost-usd';
 const MAX_TIME_FLAG = '--max-time-min';
 const MAX_CONCURRENCY_FLAG = '--max-concurrency';
 const AGENT_TIMEOUT_FLAG = '--agent-timeout-min';
+const WARN_MARK = '!';
 let invocationCounter = 0;
 
 export function readIssueNumber(value: string | undefined): number | null {
@@ -677,16 +679,42 @@ async function preflightOk(
   const outcome = await runPreflight(probes, env.root, env.runtimeName, env.verifier);
   await recordPreflight(env, outcome, invocationId);
   if (outcome.ok) {
+    reportAdvisories(env, style, outcome.findings);
     return true;
   }
   env.out('');
   env.out(style.red('Preflight failed — nothing was run and nothing was spent.'));
-  for (const finding of outcome.findings) {
-    env.out(`  ${style.check(false)}  ${finding.label} — ${finding.detail}`);
-    env.out(`     ${style.dim(`→ ${finding.remedy}`)}`);
-  }
+  reportFindings(env, style, outcome.findings, 'blocking');
   env.out('');
   return false;
+}
+
+function reportAdvisories(
+  env: RunEnvironment,
+  style: Styler,
+  findings: readonly PreflightFinding[],
+): void {
+  const advisories = findings.filter((finding) => finding.severity === 'advisory');
+  if (advisories.length === 0) {
+    return;
+  }
+  env.out('');
+  env.out(style.yellow('Preflight notes — the run continues.'));
+  reportFindings(env, style, advisories, 'advisory');
+  env.out('');
+}
+
+function reportFindings(
+  env: RunEnvironment,
+  style: Styler,
+  findings: readonly PreflightFinding[],
+  severity: PreflightSeverity,
+): void {
+  for (const finding of findings) {
+    const mark = severity === 'blocking' ? style.check(false) : style.yellow(WARN_MARK);
+    env.out(`  ${mark}  ${finding.label} — ${finding.detail}`);
+    env.out(`     ${style.dim(`→ ${finding.remedy}`)}`);
+  }
 }
 
 async function recordPreflight(

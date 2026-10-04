@@ -739,7 +739,35 @@ Responsable de :
 
 - stratégie de test ;
 - écriture des tests ;
-- vérification des tests.
+- vérification des tests ;
+- mise en place du harnais de test lorsqu'il n'existe pas encore.
+
+### 17.2.1 Harnais de test
+
+Un harnais absent n'est pas un motif de refus. Sur un projet qui ne déclare aucun
+script `test`, l'agent Test est seul qualifié pour créer le harnais :
+
+- choisir le runner adapté à la stack détectée dans le manifeste ;
+- l'ajouter comme dépendance de développement ;
+- ajouter un script `test` qui l'exécute une fois et sort en erreur dès qu'un test échoue ;
+- ajouter le fichier de configuration si le runner l'exige ;
+- déclarer chaque fichier créé dans son rapport de modifications.
+
+Le harnais doit être opérationnel **avant** l'écriture des premiers tests : Lou vérifie
+en exécutant la suite, jamais en se fiant à la parole d'un agent (§4.6).
+
+### 17.2.2 Prérequis bloquants vs advisory
+
+Le préflight distingue deux familles de constats :
+
+- **bloquant** — le run ne démarre pas. Exemples : `gh` non authentifié, runtime absent,
+  dossier hors dépôt Git, script `test` déclaré mais qui ne prouve rien.
+- **advisory** — le run démarre et le constat est journalisé. Exemple : aucun harnais de
+  test n'est encore déclaré.
+
+Un advisory ne dégrade jamais la vérification : si le harnais est toujours absent au moment
+de la phase de vérification des tests, l'orchestrateur refuse de rapporter une passe et
+remet le run à l'humain (§15.1). Le filet reste fermé, seule la porte d'entrée s'ouvre.
 
 ## 17.3 Developer Agent
 

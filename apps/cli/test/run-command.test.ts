@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { GitHubAdapter, GitHubIssue } from '@lou/github';
@@ -171,8 +171,11 @@ describe('runTicket', () => {
 
   it('records a failing preflight verdict and runs no agent', async () => {
     const { env, audit, runtime, out } = buildEnv(happyReplies());
+    const root = mkdtempSync(join(tmpdir(), 'lou-command-'));
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }));
     const broken: RunEnvironment = {
       ...env,
+      root,
       verifier: { run: () => Promise.resolve({ passed: false, reason: 'no test ran' }) },
     };
 

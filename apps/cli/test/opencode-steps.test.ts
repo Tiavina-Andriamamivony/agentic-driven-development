@@ -90,11 +90,29 @@ describe('createOpenCodeSteps', () => {
     ]);
     const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
 
-    const note = await steps.writeTests(PLAN);
+    const note = await steps.writeTests(PLAN, 'the reset endpoint clears the session');
 
     expect(note.changedFiles).toEqual(['test/reset.spec.ts']);
     expect(note.summary).toBe('tests written');
     expect(runtime.runs[0]?.agent).toBe('test-writer');
+  });
+
+  it('gives the test writer the acceptance tests designed for it', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: test/reset.spec.ts\nSUMMARY: ok')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    await steps.writeTests(PLAN, 'the reset endpoint clears the session');
+
+    expect(runtime.runs[0]?.instructions).toContain('the reset endpoint clears the session');
+  });
+
+  it('authorises the test writer to build a missing harness', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: vitest.config.ts\nSUMMARY: ok')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    await steps.writeTests(PLAN, '');
+
+    expect(runtime.runs[0]?.instructions).toContain('add a "test" script');
   });
 
   it('parses the implemented change note', async () => {

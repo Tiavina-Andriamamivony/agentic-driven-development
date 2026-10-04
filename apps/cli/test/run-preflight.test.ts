@@ -29,12 +29,18 @@ function probes(overrides: Partial<DoctorProbes> = {}): DoctorProbes {
   };
 }
 
+function blocking(outcome: { readonly findings: readonly { severity: string }[] }): readonly {
+  readonly severity: string;
+}[] {
+  return outcome.findings.filter((finding) => finding.severity === 'blocking');
+}
+
 describe('runPreflight', () => {
   it('passes when every prerequisite is ready', async () => {
     const outcome = await runPreflight(probes(), '/proj', 'opencode', PROVING);
 
     expect(outcome.ok).toBe(true);
-    expect(outcome.findings).toHaveLength(0);
+    expect(blocking(outcome)).toHaveLength(0);
   });
 
   it('fails with a remedy when gh is not authenticated', async () => {
@@ -88,15 +94,65 @@ describe('runPreflight', () => {
     expect(outcome.findings.map((f) => f.label)).toContain('Test verification');
   });
 
-  it('fails when the project has no test script', async () => {
+  it('lets a project without a test harness start, flagging it as advisory', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'lou-preflight-'));
     writeFileSync(join(cwd, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
 
     const outcome = await runPreflight(probes(), cwd, 'opencode', PROVING);
 
+    expect(outcome.ok).toBe(true);
+    expect(outcome.findings).toHaveLength(1);
+    expect(outcome.findings[0]?.severity).toBe('advisory');
+    expect(outcome.findings[0]?.label).toBe('Test harness');
+  });
+
+  it('tells the human the test agent owns the missing harness', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'lou-preflight-'));
+    writeFileSync(join(cwd, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
+
+    const outcome = await runPreflight(probes(), cwd, 'opencode', PROVING);
+
+    expect(outcome.findings[0]?.remedy).toContain('test agent');
+  });
+
+  it('lets a project with no manifest at all start', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'lou-preflight-'));
+
+    const outcome = await runPreflight(probes(), cwd, 'opencode', PROVING);
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.findings[0]?.severity).toBe('advisory');
+  });
+
+  it('never spends a test run when there is no harness to verify', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'lou-preflight-'));
+    writeFileSync(join(cwd, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
+    let invocations = 0;
+
+    await runPreflight(probes(), cwd, 'opencode', {
+      run: () => {
+        invocations += 1;
+        return Promise.resolve({ passed: true });
+      },
+    });
+
+    expect(invocations).toBe(0);
+  });
+
+  it('keeps a declared but failing harness blocking', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'lou-preflight-'));
+    writeFileSync(join(cwd, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }));
+
+    const outcome = await runPreflight(
+      probes(),
+      cwd,
+      'opencode',
+      verifier({ passed: false, reason: 'the test command exited 1' }),
+    );
+
     expect(outcome.ok).toBe(false);
-    expect(outcome.findings[0]?.label).toBe('Test script');
-    expect(outcome.findings[0]?.remedy).toContain('"test"');
+    expect(outcome.findings[0]?.severity).toBe('blocking');
+    expect(outcome.findings[0]?.label).toBe('Test verification');
   });
 
   it('passes when the project declares a test script', async () => {

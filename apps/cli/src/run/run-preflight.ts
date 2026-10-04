@@ -1,13 +1,17 @@
 import { detectTestScript } from '@lou/test-runner';
+import type { TestScriptPresence } from '@lou/test-runner';
 import type { DoctorCheck, DoctorProbes } from '../doctor/doctor-command.ts';
 import type { AgentRuntimeName } from './agent-runtime-factory.ts';
 
 const PREFLIGHT_SCRIPT = 'test';
 
-interface PreflightFinding {
+export type PreflightSeverity = 'blocking' | 'advisory';
+
+export interface PreflightFinding {
   readonly label: string;
   readonly detail: string;
   readonly remedy: string;
+  readonly severity: PreflightSeverity;
 }
 
 interface PreflightOutcome {
@@ -18,25 +22,39 @@ interface PreflightOutcome {
 interface Subject {
   readonly check: DoctorCheck;
   readonly remedy: string;
+  readonly severity: PreflightSeverity;
 }
 
 const GH_REMEDY = 'Run `gh auth login`, then retry.';
 const GIT_REMEDY = 'Run `git init` in this folder, or cd into an existing repository.';
+const HARNESS_REMEDY =
+  'Nothing to fix by hand: the Lou test agent picks the runner, adds the script and the config, then writes the first tests.';
+const VERIFY_REMEDY = 'Fix the test script so it actually runs and proves the build.';
 
-function testScriptCheck(cwd: string): DoctorCheck {
-  const presence = detectTestScript(cwd, PREFLIGHT_SCRIPT);
+function testScriptCheck(presence: TestScriptPresence): DoctorCheck {
   return {
     label: 'Test script',
-    ok: presence !== 'missing',
+    ok: presence === 'declared',
     detail:
-      presence === 'missing'
-        ? `no "${PREFLIGHT_SCRIPT}" script in package.json`
-        : `"${PREFLIGHT_SCRIPT}" is declared`,
+      presence === 'declared'
+        ? `"${PREFLIGHT_SCRIPT}" is declared`
+        : `no "${PREFLIGHT_SCRIPT}" script in package.json`,
   };
 }
 
-function testScriptRemedy(cwd: string): string {
-  return `Add a "${PREFLIGHT_SCRIPT}" script to package.json in ${cwd} — Lou verifies by running it.`;
+function harnessSubject(presence: TestScriptPresence): Subject | null {
+  if (presence === 'declared') {
+    return null;
+  }
+  return {
+    check: {
+      label: 'Test harness',
+      ok: false,
+      detail: `${testScriptCheck(presence).detail} — there is no harness yet`,
+    },
+    remedy: HARNESS_REMEDY,
+    severity: 'advisory',
+  };
 }
 
 function runtimeRemedy(runtime: AgentRuntimeName): string {
@@ -52,24 +70,25 @@ export interface VerificationRunner {
 async function verifyTestsProveSomething(
   cwd: string,
   verifier: VerificationRunner,
-): Promise<DoctorCheck> {
+): Promise<Subject> {
   try {
     const result = await verifier.run({ cwd, timeoutMs: PREFLIGHT_TIMEOUT_MS });
-    if (result.passed) {
-      return {
-        label: 'Test verification',
-        ok: true,
-        detail: 'the test script proves something',
-      };
-    }
     return {
-      label: 'Test verification',
-      ok: false,
-      detail: result.reason ?? 'the test script did not prove anything',
+      check: {
+        label: 'Test verification',
+        ok: result.passed,
+        detail: result.passed ? 'the test script proves something' : (result.reason ?? 'no proof'),
+      },
+      remedy: VERIFY_REMEDY,
+      severity: 'blocking',
     };
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'the test command failed';
-    return { label: 'Test verification', ok: false, detail };
+    return {
+      check: { label: 'Test verification', ok: false, detail },
+      remedy: VERIFY_REMEDY,
+      severity: 'blocking',
+    };
   }
 }
 
@@ -79,22 +98,27 @@ async function collect(
   runtime: AgentRuntimeName,
   verifier: VerificationRunner,
 ): Promise<readonly Subject[]> {
+  const presence = detectTestScript(cwd, PREFLIGHT_SCRIPT);
   const [gh, agent, git] = await Promise.all([
     probes.gitHubCli(),
     probes.agentRuntime(runtime),
     probes.gitRepository(),
   ]);
-  const verification = await verifyTestsProveSomething(cwd, verifier);
-  return [
-    { check: gh, remedy: GH_REMEDY },
-    { check: agent, remedy: runtimeRemedy(runtime) },
-    { check: git, remedy: GIT_REMEDY },
-    { check: testScriptCheck(cwd), remedy: testScriptRemedy(cwd) },
-    {
-      check: verification,
-      remedy: `Fix the test script in ${cwd} so it actually runs and proves the build.`,
-    },
+  const harness = harnessSubject(presence);
+  const verification =
+    presence === 'declared' ? await verifyTestsProveSomething(cwd, verifier) : null;
+  const subjects: Subject[] = [
+    { check: gh, remedy: GH_REMEDY, severity: 'blocking' },
+    { check: agent, remedy: runtimeRemedy(runtime), severity: 'blocking' },
+    { check: git, remedy: GIT_REMEDY, severity: 'blocking' },
   ];
+  if (harness !== null) {
+    subjects.push(harness);
+  }
+  if (verification !== null) {
+    subjects.push(verification);
+  }
+  return subjects;
 }
 
 export async function runPreflight(
@@ -110,6 +134,7 @@ export async function runPreflight(
       label: subject.check.label,
       detail: subject.check.detail,
       remedy: subject.remedy,
+      severity: subject.severity,
     }));
-  return { ok: findings.length === 0, findings };
+  return { ok: !findings.some((finding) => finding.severity === 'blocking'), findings };
 }

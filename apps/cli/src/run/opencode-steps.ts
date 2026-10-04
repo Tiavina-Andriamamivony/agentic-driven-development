@@ -54,7 +54,7 @@ export function createOpenCodeSteps(options: OpenCodeStepsOptions): Orchestrator
         constitution,
         settings: settingsFor(modelFor('test-designer'), mcp, onOutput, onActivity),
       }),
-    writeTests: (plan) =>
+    writeTests: (plan, testPlan) =>
       changeNote({
         runtime,
         workspace,
@@ -62,6 +62,7 @@ export function createOpenCodeSteps(options: OpenCodeStepsOptions): Orchestrator
         agent: 'test-writer',
         prompt: buildWriteTestsPrompt,
         constitution,
+        ...(testPlan === '' ? {} : { testPlan }),
         settings: settingsFor(modelFor('test-writer'), mcp, onOutput, onActivity),
       }),
     implement: (plan) =>
@@ -112,7 +113,8 @@ async function changeNote(options: {
   readonly workspace: string;
   readonly plan: PlanDraft;
   readonly agent: string;
-  readonly prompt: (input: PlanDraft, constitution: string) => string;
+  readonly prompt: PromptBuilder;
+  readonly testPlan?: string;
   readonly constitution: string;
   readonly settings: RunSettings;
 }): Promise<ChangeNote> {
@@ -120,7 +122,7 @@ async function changeNote(options: {
   const result = await runtime.run({
     runId: runIdFor(agent, plan),
     agent,
-    instructions: prompt(plan, constitution),
+    instructions: prompt(plan, constitution, options.testPlan),
     workspace,
     ...withSettings(settings),
   });
@@ -199,18 +201,41 @@ function buildDesignTestsPrompt(plan: PlanDraft, constitution: string): string {
   ].join('\n');
 }
 
-function buildWriteTestsPrompt(plan: PlanDraft, constitution: string): string {
+function buildWriteTestsPrompt(plan: PlanDraft, constitution: string, testPlan?: string): string {
   return [
     'You are the Lou test writer. Write the tests described by the test plan.',
     '',
     `Plan title: ${plan.title}`,
     plan.steps.length > 0 ? plan.steps.map((step) => `- ${step}`).join('\n') : '(no steps)',
     '',
+    ...testPlanSection(testPlan),
     ...constitutionSection(constitution),
+    ...harnessSection(),
     'Reply exactly with:',
     'CHANGED: <changed file path>',
     'SUMMARY: <one line>',
   ].join('\n');
+}
+
+function testPlanSection(testPlan: string | undefined): readonly string[] {
+  if (testPlan === undefined || testPlan.trim() === '') {
+    return [];
+  }
+  return ['Acceptance tests to cover:', testPlan, ''];
+}
+
+type PromptBuilder = (plan: PlanDraft, constitution: string, testPlan?: string) => string;
+
+function harnessSection(): readonly string[] {
+  return [
+    'If the project has no test harness yet, set one up before writing tests:',
+    '- pick the runner that matches the stack in package.json',
+    '- add it as a dev dependency',
+    '- add a "test" script that runs it once and exits non-zero on failure',
+    '- add the config file if the runner needs one',
+    'Report every harness file you create under CHANGED.',
+    '',
+  ];
 }
 
 function buildImplementPrompt(plan: PlanDraft, constitution: string): string {

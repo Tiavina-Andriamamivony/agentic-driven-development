@@ -30,7 +30,7 @@ export interface ChangeNote {
 export interface OrchestratorSteps {
   understand(input: UnderstandInput): Promise<Understanding>;
   designTests(plan: PlanDraft): Promise<{ readonly testPlan: string }>;
-  writeTests(plan: PlanDraft): Promise<ChangeNote>;
+  writeTests(plan: PlanDraft, testPlan: string): Promise<ChangeNote>;
   implement(plan: PlanDraft): Promise<ChangeNote>;
 }
 
