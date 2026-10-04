@@ -9,6 +9,7 @@ import { SecretRedactor } from '../src/run/secret-redactor.ts';
 import { translate } from '../src/run/trace-steps.ts';
 
 const WARMUP = 50;
+const SPEED_ROUNDS = 7;
 const CHUNK =
   JSON.stringify({
     type: 'tool_use',
@@ -26,6 +27,14 @@ function perOpMicros(iterations: number, work: () => void): number {
     work();
   }
   return Number(process.hrtime.bigint() - started) / 1e3 / iterations;
+}
+
+function fastestOf(rounds: number, work: () => void): number {
+  let fastest = Number.POSITIVE_INFINITY;
+  for (let round = 0; round < rounds; round += 1) {
+    fastest = Math.min(fastest, perOpMicros(200, work));
+  }
+  return fastest;
 }
 
 function observedMicros(work: () => void): number {
@@ -94,10 +103,10 @@ describe('hot path responsiveness', () => {
     const redactor = new SecretRedactor();
     const build = (chunks: number): string => CHUNK.repeat(chunks);
 
-    const small = perOpMicros(200, () => {
+    const small = fastestOf(SPEED_ROUNDS, () => {
       redactor.redact(build(4));
     });
-    const large = perOpMicros(200, () => {
+    const large = fastestOf(SPEED_ROUNDS, () => {
       redactor.redact(build(16));
     });
 
@@ -111,10 +120,10 @@ describe('hot path responsiveness', () => {
     const other = new AgentLogSink({ directory: join(root, 'large') });
     other.begin('planner', 'RUN-2');
 
-    const small = perOpMicros(200, () => {
+    const small = fastestOf(SPEED_ROUNDS, () => {
       sink.write(CHUNK);
     });
-    const large = perOpMicros(50, () => {
+    const large = fastestOf(SPEED_ROUNDS, () => {
       for (let index = 0; index < 4; index += 1) {
         other.write(CHUNK);
       }

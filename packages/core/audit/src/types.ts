@@ -30,6 +30,7 @@ export interface AuditEvent {
   readonly tool?: string;
   readonly target?: string;
   readonly reason?: string;
+  readonly invocation?: string;
   readonly command?: string;
   readonly excerpt?: string;
   readonly exitCode?: number;

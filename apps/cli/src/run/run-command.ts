@@ -627,10 +627,14 @@ async function openIssue(env: RunEnvironment): Promise<GitHubIssue | null> {
   return issue;
 }
 
+function newInvocationId(): string {
+  return new Date().toISOString().replace(/[^0-9]/g, '');
+}
+
 async function preflightOk(env: RunEnvironment, style: Styler): Promise<boolean> {
   const probes = env.preflightProbes ?? createRealDoctorProbes(env.root);
   const outcome = await runPreflight(probes, env.root, env.runtimeName, env.verifier);
-  await recordPreflight(env, outcome);
+  await recordPreflight(env, outcome, newInvocationId());
   if (outcome.ok) {
     return true;
   }
@@ -650,9 +654,11 @@ async function recordPreflight(
     readonly ok: boolean;
     readonly findings: readonly { label: string; detail: string }[];
   },
+  invocationId: string,
 ): Promise<void> {
   await env.audit.record({
     runId: `run-${env.issueNumber}`,
+    invocation: invocationId,
     event: 'test_finished',
     target: 'preflight',
     result: outcome.ok ? 'success' : 'failure',
@@ -680,6 +686,7 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     return runDryRun(issue, env, steps, trace);
   }
   const startedAt = new Date().toISOString();
+  const invocation = newInvocationId();
   const orchestrator = buildOrchestrator({
     env,
     issue,
@@ -688,6 +695,7 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
     constitution,
     trace,
     log,
+    invocation,
   });
   const outcome = await tracedRun(orchestrator, trace);
   await writeSummary(env, issue.number, outcome, startedAt);
@@ -732,6 +740,7 @@ function buildOrchestrator(input: {
   readonly constitution: readonly Article[];
   readonly trace: RunTrace;
   readonly log: AgentLogSink;
+  readonly invocation: string;
 }): Orchestrator {
   const { env, issue, runtime, steps, constitution, trace, log } = input;
   return new Orchestrator({
@@ -758,7 +767,7 @@ function buildOrchestrator(input: {
     tests: env.tests,
     git: env.git,
     github: env.github,
-    audit: withTrace(env.audit, input.trace, log),
+    audit: withTrace(env.audit, input.trace, log, input.invocation),
     conventions: withConstitution(env.conventions, constitution),
   });
 }
@@ -858,12 +867,17 @@ async function readIssue(env: RunEnvironment): Promise<GitHubIssue | null> {
   }
 }
 
-function withTrace(audit: AuditLog, trace: RunTrace, log: AgentLogSink): AuditLog {
+function withTrace(
+  audit: AuditLog,
+  trace: RunTrace,
+  log: AgentLogSink,
+  invocation: string,
+): AuditLog {
   return {
     record(payload: AuditEventPayload): Promise<void> {
       followAgent(log, payload);
       trace.event(payload);
-      return audit.record(payload);
+      return audit.record({ ...payload, invocation });
     },
     history: () => audit.history(),
   };
