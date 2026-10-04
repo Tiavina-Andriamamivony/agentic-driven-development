@@ -130,6 +130,7 @@ const MAX_COST_FLAG = '--max-cost-usd';
 const MAX_TIME_FLAG = '--max-time-min';
 const MAX_CONCURRENCY_FLAG = '--max-concurrency';
 const AGENT_TIMEOUT_FLAG = '--agent-timeout-min';
+let invocationCounter = 0;
 
 export function readIssueNumber(value: string | undefined): number | null {
   if (value === undefined) {
@@ -659,6 +660,11 @@ async function openIssue(env: RunEnvironment): Promise<GitHubIssue | null> {
 }
 
 function newInvocationId(): string {
+  invocationCounter += 1;
+  return `${stamp()}${invocationCounter}`;
+}
+
+function stamp(): string {
   return new Date().toISOString().replace(/[^0-9]/g, '');
 }
 
