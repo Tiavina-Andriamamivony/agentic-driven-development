@@ -69,18 +69,16 @@ export class ClaudeCodeRuntime implements AgentRuntime {
     this.statuses.set(input.runId, { runId: input.runId, running: true, finished: false });
     try {
       const reader = new ClaudeStreamReader();
-      const onOutput = input.onOutput;
-      const result = await this.runner.run(
-        this.binary,
-        this.buildArgs(input, onOutput !== undefined),
-        {
-          cwd: input.workspace,
-          signal: controller.signal,
-          timeoutMs: this.timeoutMs,
-          stdin: input.instructions,
-          ...this.liveOptions(onOutput, reader),
+      const streaming = input.onOutput !== undefined || input.onActivity !== undefined;
+      const result = await this.runner.run(this.binary, this.buildArgs(input, streaming), {
+        cwd: input.workspace,
+        signal: controller.signal,
+        timeoutMs: this.timeoutMs,
+        stdin: input.instructions,
+        onStdout: (chunk): void => {
+          this.stream(input, reader, chunk);
         },
-      );
+      });
       this.statuses.set(
         input.runId,
         this.toFinished(input.runId, result.exitCode, result.interrupted),
@@ -107,20 +105,11 @@ export class ClaudeCodeRuntime implements AgentRuntime {
     return Promise.resolve();
   }
 
-  private liveOptions(
-    onOutput: AgentRunInput['onOutput'],
-    reader: ClaudeStreamReader,
-  ): { onStdout?: (chunk: string) => void } {
-    if (onOutput === undefined) {
-      return {};
+  private stream(input: AgentRunInput, reader: ClaudeStreamReader, chunk: string): void {
+    input.onOutput?.(chunk);
+    for (const line of reader.push(chunk)) {
+      input.onActivity?.({ kind: 'text', text: line });
     }
-    return {
-      onStdout: (chunk: string) => {
-        for (const activity of reader.push(chunk)) {
-          onOutput(activity);
-        }
-      },
-    };
   }
 
   private buildArgs(input: AgentRunInput, streaming: boolean): string[] {

@@ -1,7 +1,8 @@
-import type { CommandRunner } from '@lou/command-runner';
+import type { CommandRunOptions, CommandRunner } from '@lou/command-runner';
 import { NodeCommandRunner } from '@lou/command-runner';
 import type { AgentRuntime } from '@lou/agent-runtime';
 import type { AgentRunInput, AgentRunResult, AgentStatus } from '@lou/agent-runtime';
+import { OpenCodeEventReader } from './opencode-event-reader.ts';
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 const MCP_CONFIG_ENV = 'OPENCODE_CONFIG_CONTENT';
@@ -28,6 +29,7 @@ export class OpenCodeRuntime implements AgentRuntime {
   async run(input: AgentRunInput): Promise<AgentRunResult> {
     this.validate(input);
     const controller = new AbortController();
+    const reader = this.reader(input);
     this.controllers.set(input.runId, controller);
     this.statuses.set(input.runId, { runId: input.runId, running: true, finished: false });
     try {
@@ -36,13 +38,14 @@ export class OpenCodeRuntime implements AgentRuntime {
         signal: controller.signal,
         timeoutMs: this.timeoutMs,
         ...(input.mcp !== undefined ? { env: this.mcpEnv(input.mcp) } : {}),
-        ...(input.onOutput !== undefined ? { onStdout: input.onOutput } : {}),
+        ...this.stream(input, reader),
       });
+      reader.finish();
       this.statuses.set(
         input.runId,
         this.toFinished(input.runId, result.exitCode, result.interrupted),
       );
-      return { runId: input.runId, ...result };
+      return { runId: input.runId, ...result, stdout: reader.answerText() };
     } catch (error) {
       this.statuses.set(input.runId, { runId: input.runId, running: false, finished: false });
       throw error;
@@ -61,7 +64,7 @@ export class OpenCodeRuntime implements AgentRuntime {
   }
 
   private buildArgs(input: AgentRunInput): string[] {
-    const args = ['run'];
+    const args = ['run', '--format', 'json', '--thinking'];
     if (input.agent !== undefined) {
       args.push('--agent', input.agent);
     }
@@ -70,6 +73,18 @@ export class OpenCodeRuntime implements AgentRuntime {
     }
     args.push('--print-logs', input.instructions);
     return args;
+  }
+
+  private reader(input: AgentRunInput): OpenCodeEventReader {
+    return new OpenCodeEventReader((activity) => input.onActivity?.(activity));
+  }
+
+  private stream(input: AgentRunInput, reader: OpenCodeEventReader): Partial<CommandRunOptions> {
+    const onStdout = (chunk: string): void => {
+      input.onOutput?.(chunk);
+      reader.push(chunk);
+    };
+    return input.onOutput === undefined ? { onStdout } : { onStdout, onStderr: input.onOutput };
   }
 
   private mcpEnv(servers: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
