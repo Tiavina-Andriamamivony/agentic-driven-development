@@ -27,11 +27,19 @@ export interface ChangeNote {
   readonly summary: string;
 }
 
+export interface ImplementInput {
+  readonly plan: PlanDraft;
+  readonly issue: GitHubIssue;
+  readonly review: ReviewNote | null;
+  readonly attempt: number;
+  readonly alreadyDelivered: readonly string[];
+}
+
 export interface OrchestratorSteps {
   understand(input: UnderstandInput): Promise<Understanding>;
   designTests(plan: PlanDraft): Promise<{ readonly testPlan: string }>;
   writeTests(plan: PlanDraft, testPlan: string): Promise<ChangeNote>;
-  implement(plan: PlanDraft): Promise<ChangeNote>;
+  implement(input: ImplementInput): Promise<ChangeNote>;
 }
 
 export type ApprovalKind = 'plan' | 'review';

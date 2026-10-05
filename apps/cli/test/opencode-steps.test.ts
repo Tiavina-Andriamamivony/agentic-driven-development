@@ -1,4 +1,4 @@
-import type { PlanDraft, UnderstandInput } from '@lou/orchestrator';
+import type { ImplementInput, PlanDraft, UnderstandInput } from '@lou/orchestrator';
 import { describe, expect, it } from 'vitest';
 import { createOpenCodeSteps } from '../src/run/opencode-steps';
 import { createFakeRuntime, resultFor } from './fakes';
@@ -16,6 +16,23 @@ const PLAN: PlanDraft = {
   commitMessage: 'feat(auth): add password reset',
   steps: ['add the reset endpoint'],
 };
+
+function firstAttempt(): ImplementInput {
+  return { plan: PLAN, issue: ISSUE, review: null, attempt: 1, alreadyDelivered: [] };
+}
+
+function retry(): ImplementInput {
+  return {
+    plan: PLAN,
+    issue: ISSUE,
+    review: {
+      verdict: 'CHANGES_REQUESTED',
+      reason: 'Only subtask 1.1 landed; 1.2 to 1.7 remain undone',
+    },
+    attempt: 2,
+    alreadyDelivered: ['package.json', 'pnpm-lock.yaml'],
+  };
+}
 
 const UNDERSTAND_STDOUT = [
   'SUMMARY: implement the reset password flow',
@@ -133,13 +150,79 @@ describe('createOpenCodeSteps', () => {
     expect(note.changedFiles).toEqual(['math.ts']);
   });
 
+  it('drops a CHANGED line that opens with a placeholder and continues in prose', async () => {
+    const runtime = createFakeRuntime([
+      resultFor(
+        'CHANGED: none — commit #1 (72933b0) already implemented the pnpm foundation; verified green, no edits required\nSUMMARY: nothing to do',
+      ),
+    ]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual([]);
+  });
+
+  it('drops a parenthesised placeholder that trails off into a sentence', async () => {
+    const runtime = createFakeRuntime([
+      resultFor('CHANGED: (none — verified existing commit 72933b0)\nSUMMARY: done'),
+    ]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual([]);
+  });
+
+  it('splits a CHANGED line that lists several paths at once', async () => {
+    const runtime = createFakeRuntime([
+      resultFor('CHANGED: package.json, pnpm-lock.yaml, README.md\nSUMMARY: ok'),
+    ]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual(['package.json', 'pnpm-lock.yaml', 'README.md']);
+  });
+
+  it('strips the state annotation an agent appends to a path', async () => {
+    const runtime = createFakeRuntime([
+      resultFor('CHANGED: package.json (modified), package-lock.json (deleted)\nSUMMARY: ok'),
+    ]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual(['package.json', 'package-lock.json']);
+  });
+
+  it('keeps the real paths of a sentence that also announces no change', async () => {
+    const runtime = createFakeRuntime([
+      resultFor('CHANGED: none — except src/math.ts which I added\nSUMMARY: ok'),
+    ]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual([]);
+  });
+
+  it('keeps a path that contains a dot and a dash', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: src/my-module.v2.ts\nSUMMARY: ok')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual(['src/my-module.v2.ts']);
+  });
+
   it('parses the implemented change note', async () => {
     const runtime = createFakeRuntime([
       resultFor('CHANGED: src/reset.ts\nCHANGED: src/reset.spec.ts\nSUMMARY: implemented'),
     ]);
     const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
 
-    const note = await steps.implement(PLAN);
+    const note = await steps.implement(firstAttempt());
 
     expect(note.changedFiles).toEqual(['src/reset.ts', 'src/reset.spec.ts']);
     expect(note.summary).toBe('implemented');
@@ -151,10 +234,66 @@ describe('createOpenCodeSteps', () => {
     const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
 
     const design = await steps.designTests(PLAN);
-    const note = await steps.implement(PLAN);
+    const note = await steps.implement(firstAttempt());
 
     expect(design.testPlan).toBe('(no test plan)');
     expect(note.summary).toBe('(no summary)');
     expect(note.changedFiles).toEqual([]);
+  });
+
+  it('tells the developer why the reviewer sent the attempt back', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: src/reset.ts\nSUMMARY: ok')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    await steps.implement(retry());
+
+    expect(runtime.runs[0]?.instructions).toContain('Only subtask 1.1 landed');
+  });
+
+  it('tells the developer which attempt it is on', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: src/reset.ts\nSUMMARY: ok')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    await steps.implement(retry());
+
+    expect(runtime.runs[0]?.instructions).toContain('attempt 2');
+  });
+
+  it('lists what the earlier attempt already delivered', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: src/reset.ts\nSUMMARY: ok')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    await steps.implement(retry());
+
+    expect(runtime.runs[0]?.instructions).toContain('pnpm-lock.yaml');
+  });
+
+  it('says the ticket number so the developer can reread it', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: src/reset.ts\nSUMMARY: ok')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    await steps.implement(retry());
+
+    expect(runtime.runs[0]?.instructions).toContain('issue #1');
+  });
+
+  it('gives the developer the plan on the first attempt and no review section', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: src/reset.ts\nSUMMARY: ok')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    await steps.implement(firstAttempt());
+
+    const instructions = runtime.runs[0]?.instructions ?? '';
+    expect(instructions).toContain('add the reset endpoint');
+    expect(instructions).not.toContain('CHANGES_REQUESTED');
+  });
+
+  it('refuses to let a retry return nothing without an explanation', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: none\nSUMMARY: ok')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    await steps.implement(retry());
+
+    expect(runtime.runs[0]?.instructions).toContain('do not return an empty CHANGED');
   });
 });

@@ -38,7 +38,7 @@ interface GitSpy {
   readonly pushes: number;
 }
 
-export function createGitSpy(): GitSpy {
+export function createGitSpy(visible?: readonly string[]): GitSpy {
   const branches: string[] = [];
   const staged: string[] = [];
   const commits: string[] = [];
@@ -65,6 +65,9 @@ export function createGitSpy(): GitSpy {
     },
     isClean(): Promise<boolean> {
       return Promise.resolve(true);
+    },
+    changedPaths(): Promise<readonly string[]> {
+      return Promise.resolve(visible ?? [...staged]);
     },
   };
   return {

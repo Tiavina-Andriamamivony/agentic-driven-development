@@ -2,6 +2,7 @@ import type { ActivityHandler, AgentRuntime } from '@lou/agent-runtime';
 import type { OutputHandler } from '@lou/command-runner';
 import type {
   ChangeNote,
+  ImplementInput,
   OrchestratorSteps,
   PlanDraft,
   UnderstandInput,
@@ -43,11 +44,41 @@ const PLACEHOLDER_FILES: ReadonlySet<string> = new Set([
   '(none)',
   'no changes',
 ]);
+const PLACEHOLDER_WORDS: ReadonlySet<string> = new Set([
+  ...PLACEHOLDER_FILES,
+  'no change',
+  'unchanged',
+  'nothing changed',
+  'already done',
+]);
+const STATE_ANNOTATION = /\s*\((?:deleted|new|modified|renamed|created|removed|updated)\)\s*$/i;
+const PROSE_SEPARATORS = ['—', ' – ', ' - ', ';', '  '];
+
+function isProse(entry: string): boolean {
+  if (PROSE_SEPARATORS.some((separator) => entry.includes(separator))) {
+    return true;
+  }
+  const firstWord = entry
+    .toLowerCase()
+    .replace(/^[(\s]+/, '')
+    .split(/[\s,;:—–-]/, 1)
+    .at(0);
+  return firstWord !== undefined && PLACEHOLDER_WORDS.has(firstWord);
+}
+
+function candidatePaths(entry: string): readonly string[] {
+  const trimmed = entry.trim();
+  if (trimmed.length === 0 || PLACEHOLDER_FILES.has(trimmed.toLowerCase()) || isProse(trimmed)) {
+    return [];
+  }
+  return trimmed
+    .split(',')
+    .map((candidate) => candidate.trim().replace(STATE_ANNOTATION, '').trim())
+    .filter((candidate) => candidate.length > 0);
+}
 
 function changedPaths(stdout: string): readonly string[] {
-  return matchAll(stdout, CHANGED_PATTERN)
-    .map((entry) => entry.trim())
-    .filter((entry) => !PLACEHOLDER_FILES.has(entry.toLowerCase()));
+  return matchAll(stdout, CHANGED_PATTERN).flatMap(candidatePaths);
 }
 export function createOpenCodeSteps(options: OpenCodeStepsOptions): OrchestratorSteps {
   const { runtime, workspace, model, modelsByAgent, mcp, onOutput, onActivity } = options;
@@ -80,13 +111,14 @@ export function createOpenCodeSteps(options: OpenCodeStepsOptions): Orchestrator
         ...(testPlan === '' ? {} : { testPlan }),
         settings: settingsFor(modelFor('test-writer'), mcp, onOutput, onActivity),
       }),
-    implement: (plan) =>
+    implement: (input) =>
       changeNote({
         runtime,
         workspace,
-        plan,
+        plan: input.plan,
         agent: 'developer',
         prompt: buildImplementPrompt,
+        promptInput: input,
         constitution,
         settings: settingsFor(modelFor('developer'), mcp, onOutput, onActivity),
       }),
@@ -130,6 +162,7 @@ async function changeNote(options: {
   readonly agent: string;
   readonly prompt: PromptBuilder;
   readonly testPlan?: string;
+  readonly promptInput?: ImplementInput;
   readonly constitution: string;
   readonly settings: RunSettings;
 }): Promise<ChangeNote> {
@@ -137,7 +170,7 @@ async function changeNote(options: {
   const result = await runtime.run({
     runId: runIdFor(agent, plan),
     agent,
-    instructions: prompt(plan, constitution, options.testPlan),
+    instructions: prompt(plan, constitution, options.testPlan, options.promptInput),
     workspace,
     ...withSettings(settings),
   });
@@ -177,6 +210,28 @@ function withSettings(settings: RunSettings): RunSettings {
 
 function constitutionSection(constitution: string): readonly string[] {
   return constitution.length === 0 ? [] : ['', constitution];
+}
+
+function implementationSection(implementation: ImplementInput | undefined): readonly string[] {
+  if (implementation === undefined || implementation.review === null) {
+    return [];
+  }
+  const delivered =
+    implementation.alreadyDelivered.length > 0
+      ? implementation.alreadyDelivered.map((file) => `- ${file}`).join('\n')
+      : '(nothing yet)';
+  return [
+    '',
+    `This is attempt ${implementation.attempt} at issue #${implementation.issue.number}. An earlier attempt was sent back.`,
+    '',
+    `The reviewer answered ${implementation.review.verdict}: ${implementation.review.reason}`,
+    '',
+    'Already delivered by the earlier attempt:',
+    delivered,
+    '',
+    'Read the verdict. Whatever it says is still missing, and your job now is that.',
+    'If you believe an item is already done, say so under SUMMARY and explain why the reviewer disagrees — do not return an empty CHANGED and stop.',
+  ];
 }
 
 function buildUnderstandPrompt(input: UnderstandInput, constitution: string): string {
@@ -239,7 +294,12 @@ function testPlanSection(testPlan: string | undefined): readonly string[] {
   return ['Acceptance tests to cover:', testPlan, ''];
 }
 
-type PromptBuilder = (plan: PlanDraft, constitution: string, testPlan?: string) => string;
+type PromptBuilder = (
+  plan: PlanDraft,
+  constitution: string,
+  testPlan?: string,
+  implementation?: ImplementInput,
+) => string;
 
 function harnessSection(): readonly string[] {
   return [
@@ -253,13 +313,19 @@ function harnessSection(): readonly string[] {
   ];
 }
 
-function buildImplementPrompt(plan: PlanDraft, constitution: string): string {
+function buildImplementPrompt(
+  plan: PlanDraft,
+  constitution: string,
+  _testPlan?: string,
+  implementation?: ImplementInput,
+): string {
   return [
     'You are the Lou developer. Implement each planned step, respecting the plan.',
     '',
     `Plan title: ${plan.title}`,
     plan.steps.length > 0 ? plan.steps.map((step) => `- ${step}`).join('\n') : '(no steps)',
     '',
+    ...implementationSection(implementation),
     ...constitutionSection(constitution),
     'Reply exactly with:',
     'CHANGED: <changed file path>',

@@ -1,5 +1,9 @@
 import type { GitAdapter } from '@lou/git';
 
+interface GitSpyOptions {
+  readonly visible?: readonly string[];
+}
+
 interface GitSpy {
   readonly git: GitAdapter;
   readonly branches: readonly string[];
@@ -9,7 +13,7 @@ interface GitSpy {
   readonly pushes: number;
 }
 
-export function createGitSpy(): GitSpy {
+export function createGitSpy(options: GitSpyOptions = {}): GitSpy {
   const branches: string[] = [];
   const staged: string[] = [];
   const commits: string[] = [];
@@ -41,6 +45,9 @@ export function createGitSpy(): GitSpy {
     },
     isClean(): Promise<boolean> {
       return Promise.resolve(true);
+    },
+    changedPaths(): Promise<readonly string[]> {
+      return Promise.resolve(options.visible ?? ['src/index.ts', 'test/feature.spec.ts']);
     },
   };
   return {

@@ -42,6 +42,8 @@ const PLANNER_STDOUT = [
   'PLAN_STEP: add the reset endpoint',
 ].join('\n');
 
+const WRITTEN_FILES = ['test/reset.spec.ts', 'src/reset.ts'];
+
 function happyReplies(): readonly AgentRunResult[] {
   return [
     resultFor(PLANNER_STDOUT),
@@ -90,7 +92,7 @@ function buildEnv(
   issue: GitHubIssue = ISSUE,
   settings?: BuildEnvSettings,
 ): EnvFixture {
-  const git = createGitSpy();
+  const git = createGitSpy(WRITTEN_FILES);
   const audit = createAuditSpy();
   const github = createGitHubSpy(issue);
   const tests = createTestRunner(true);
@@ -204,7 +206,7 @@ describe('runTicket', () => {
       getIssue: () => Promise.reject(new Error('network down')),
       createPullRequest: () => Promise.reject(new Error('nope')),
     };
-    const git = createGitSpy();
+    const git = createGitSpy(WRITTEN_FILES);
     const audit = createAuditSpy();
     const tests = createTestRunner(true);
     const runtime = createFakeRuntime(happyReplies());
@@ -341,7 +343,7 @@ describe('runTicket', () => {
 
 describe('runTicket in dry-run', () => {
   it('prints the plan and makes no git, github, test or implementation calls', async () => {
-    const git = createGitSpy();
+    const git = createGitSpy(WRITTEN_FILES);
     const audit = createAuditSpy();
     const github = createGitHubSpy(ISSUE);
     const tests = createTestRunner(true);
@@ -396,7 +398,7 @@ describe('runTicket in dry-run', () => {
       root: '/proj',
       workspace: '/work',
       github: createGitHubSpy(ISSUE).github,
-      git: createGitSpy().git,
+      git: createGitSpy(WRITTEN_FILES).git,
       tests: createTestRunner(true).runner,
       audit: createAuditSpy().log,
       runtime,
@@ -426,7 +428,7 @@ describe('runTicket in dry-run', () => {
       root: '/proj',
       workspace: '/work',
       github: createGitHubSpy(ISSUE).github,
-      git: createGitSpy().git,
+      git: createGitSpy(WRITTEN_FILES).git,
       tests: createTestRunner(true).runner,
       audit: createAuditSpy().log,
       runtime,

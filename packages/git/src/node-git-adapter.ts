@@ -51,6 +51,14 @@ export class NodeGitAdapter implements GitAdapter {
     return result.stdout.length === 0;
   }
 
+  async changedPaths(): Promise<readonly string[]> {
+    const result = await this.git(['status', '--porcelain', '--untracked-files=all']);
+    return result.stdout
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map(porcelainPath);
+  }
+
   async addWorktree(path: string): Promise<void> {
     assertNonEmpty(path, 'worktree path');
     await this.git(['worktree', 'add', '--detach', path]);
@@ -68,6 +76,15 @@ export class NodeGitAdapter implements GitAdapter {
     }
     return result;
   }
+}
+
+const PORCELAIN_STATUS_WIDTH = 3;
+const RENAME_SEPARATOR = ' -> ';
+
+function porcelainPath(line: string): string {
+  const entry = line.slice(PORCELAIN_STATUS_WIDTH).trim();
+  const rename = entry.lastIndexOf(RENAME_SEPARATOR);
+  return rename === -1 ? entry : entry.slice(rename + RENAME_SEPARATOR.length);
 }
 
 function assertNonEmpty(value: string, what: string): void {

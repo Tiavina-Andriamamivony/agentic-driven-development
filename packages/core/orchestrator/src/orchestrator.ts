@@ -26,6 +26,7 @@ import type {
 
 const STEP_BUDGET = 256;
 const NO_COMMENT = '(no comment)';
+const STALLED_ATTEMPT_LIMIT = 2;
 const FALLBACK_PLAN: PlanDraft = {
   title: 'work in progress',
   branchName: 'feature/work',
@@ -66,9 +67,12 @@ export class Orchestrator {
   private understanding: Understanding | null = null;
   private implementation: ChangeNote = { changedFiles: [], summary: '(no implementation)' };
   private changedFiles: string[] = [];
+  private implementationAttempts = 0;
+  private stalledAttempts = 0;
   private testReport = '(no tests run)';
   private testPlan = '';
   private reviewNote: ReviewNote | null = null;
+  private lastReviewReason = '';
 
   private readonly handlers: Readonly<
     Partial<Record<Phase, () => Promise<OrchestratorOutcome | null>>>
@@ -220,11 +224,34 @@ export class Orchestrator {
   }
 
   private async implement(): Promise<OrchestratorOutcome | null> {
-    const note = await this.runAgent('developer', () => this.steps.implement(this.plan));
+    this.implementationAttempts += 1;
+    const note = await this.runAgent('developer', () =>
+      this.steps.implement({
+        plan: this.plan,
+        issue: this.issue,
+        review: this.reviewNote,
+        attempt: this.implementationAttempts,
+        alreadyDelivered: this.changedFiles,
+      }),
+    );
     this.implementation = note;
     await this.recordChanges(note);
     this.apply(COMMANDS.IMPLEMENTATION_COMPLETE);
-    return null;
+    return this.checkProgress(note);
+  }
+
+  private checkProgress(note: ChangeNote): OrchestratorOutcome | null {
+    if (note.changedFiles.length > 0) {
+      this.stalledAttempts = 0;
+      return null;
+    }
+    this.stalledAttempts += 1;
+    if (this.stalledAttempts < STALLED_ATTEMPT_LIMIT) {
+      return null;
+    }
+    return this.intervention(
+      `the developer reported no change in ${this.stalledAttempts} consecutive attempts`,
+    );
   }
 
   private async verifyImplementation(): Promise<OrchestratorOutcome | null> {
@@ -268,10 +295,26 @@ export class Orchestrator {
     if (decision.verdict === 'BLOCKED') {
       return { status: 'blocked', finalPhase: this.workflow.phase, reason: decision.reason };
     }
-    const command =
-      decision.verdict === 'APPROVED' ? COMMANDS.REVIEW_APPROVED : COMMANDS.CHANGES_REQUESTED;
-    this.apply(command);
+    if (decision.verdict === 'APPROVED') {
+      this.apply(COMMANDS.REVIEW_APPROVED);
+      return null;
+    }
+    return this.requestChanges(decision.reason);
+  }
+
+  private requestChanges(reason: string): OrchestratorOutcome | null {
+    if (this.repeatReview(reason)) {
+      return this.intervention(`the reviewer asked for the same thing twice: ${reason}`);
+    }
+    this.apply(COMMANDS.CHANGES_REQUESTED);
     return null;
+  }
+
+  private repeatReview(reason: string): boolean {
+    const normalized = reason.trim().toLowerCase();
+    const repeated = normalized.length > 0 && normalized === this.lastReviewReason;
+    this.lastReviewReason = normalized;
+    return repeated;
   }
 
   private async approveReviewGate(): Promise<OrchestratorOutcome | null> {
@@ -287,15 +330,16 @@ export class Orchestrator {
   }
 
   private async publish(): Promise<OrchestratorOutcome | null> {
-    if (this.changedFiles.length === 0) {
-      return this.failure('the agents reported no file change');
+    const claimed = await this.claimablePaths();
+    if (claimed.length === 0) {
+      return this.failure('the agents reported no file change git can see');
     }
-    await this.git.stage(this.changedFiles);
+    await this.git.stage(claimed);
     await this.audit.record(
       this.event('tool_called', {
         tool: 'git.stage',
         risk: 'low',
-        target: `${this.changedFiles.length}`,
+        target: `${claimed.length}`,
       }),
     );
     await this.git.commit(this.plan.commitMessage);
@@ -340,6 +384,14 @@ export class Orchestrator {
       return;
     }
     throw new UnrunnableTestsError(result.reason ?? 'tests cannot run in this workspace');
+  }
+
+  private async claimablePaths(): Promise<readonly string[]> {
+    if (this.changedFiles.length === 0) {
+      return [];
+    }
+    const seen = await this.git.changedPaths();
+    return this.changedFiles.filter((file) => seen.includes(file));
   }
 
   private async recordChanges(note: ChangeNote): Promise<void> {
