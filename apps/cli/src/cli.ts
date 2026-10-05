@@ -26,7 +26,11 @@ import {
   runUpgrade,
 } from './upgrade/upgrade-command.ts';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MS, maybeNotifyUpgrade } from './upgrade/upgrade-notice.ts';
-import { AGENT_RUNTIME_NAMES, readAgentRuntimeName } from './run/agent-runtime-factory.ts';
+import {
+  AGENT_RUNTIME_NAMES,
+  DEFAULT_AGENT_RUNTIME,
+  readAgentRuntimeName,
+} from './run/agent-runtime-factory.ts';
 import type { AgentRuntimeName } from './run/agent-runtime-factory.ts';
 import { createNodeRunsStore, runListRuns } from './runs/runs-list.ts';
 import type { RunsStore } from './runs/runs-list.ts';
@@ -196,6 +200,10 @@ async function offerOpenCodeInstall(env: CliEnv): Promise<void> {
   }
 }
 
+function needsOpenCode(parsed: RunArguments): boolean {
+  return (parsed.runtime ?? DEFAULT_AGENT_RUNTIME) === DEFAULT_AGENT_RUNTIME;
+}
+
 async function requireOpenCode(env: CliEnv): Promise<boolean> {
   const status = await ensureOpenCode(preflightOptions(env));
   return status === 'present' || status === 'installed';
@@ -223,10 +231,24 @@ async function handleRun(argv: readonly string[], env: CliEnv): Promise<number> 
   if (env.upgradeNotice !== undefined) {
     await env.upgradeNotice();
   }
-  if (!(await requireOpenCode(env))) {
+  if (needsOpenCode(parsed) && !(await requireOpenCode(env))) {
     return 1;
   }
   return executeRun(parsed, env);
+}
+
+interface AgentRunSettings {
+  readonly model?: string;
+  readonly modelsByAgent?: Readonly<Record<string, string>>;
+  readonly mcp?: Readonly<Record<string, string>>;
+}
+
+function agentRunSettings(parsed: RunArguments): AgentRunSettings {
+  return {
+    ...(parsed.model !== undefined ? { model: parsed.model } : {}),
+    ...(parsed.modelsByAgent !== undefined ? { modelsByAgent: parsed.modelsByAgent } : {}),
+    ...(parsed.mcp !== undefined ? { mcp: parsed.mcp } : {}),
+  };
 }
 
 function executeRun(parsed: RunArguments, env: CliEnv): Promise<number> {
@@ -235,13 +257,12 @@ function executeRun(parsed: RunArguments, env: CliEnv): Promise<number> {
     dryRun: parsed.dryRun,
     cwd: env.cwd,
     out: env.out,
-    ...(parsed.model !== undefined ? { model: parsed.model } : {}),
-    ...(parsed.modelsByAgent !== undefined ? { modelsByAgent: parsed.modelsByAgent } : {}),
-    ...(parsed.mcp !== undefined ? { mcp: parsed.mcp } : {}),
+    ...agentRunSettings(parsed),
     ...(parsed.maxCostUsd !== undefined ? { maxCostUsd: parsed.maxCostUsd } : {}),
     ...(parsed.maxMinutes !== undefined ? { maxMinutes: parsed.maxMinutes } : {}),
     ...(parsed.agentTimeoutMs !== undefined ? { agentTimeoutMs: parsed.agentTimeoutMs } : {}),
     ...(parsed.maxConcurrency !== undefined ? { maxConcurrency: parsed.maxConcurrency } : {}),
+    ...(parsed.runtime !== undefined ? { runtime: parsed.runtime } : {}),
   }).catch((error: unknown) => {
     env.err(`lou run failed: ${errorMessage(error)}`);
     return 1;

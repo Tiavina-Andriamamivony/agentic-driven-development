@@ -201,6 +201,21 @@ describe('runCli', () => {
     expect(collector.out.join('\n')).not.toContain('Cannot fetch issue');
   });
 
+  it('does not send a claude run through the opencode gate', async () => {
+    const collector = createCollector();
+    const code = await runCli(['run', '7', '--runtime', 'claude'], {
+      reader: createMemoryReader({}),
+      cwd: '/work',
+      openCodeInstaller: missingOpenCode(),
+      interactive: false,
+      out: (line: string) => collector.out.push(line),
+      err: (line: string) => collector.err.push(line),
+    });
+
+    expect(collector.out.join('\n')).not.toContain('opencode is required');
+    expect(code).toBe(1);
+  });
+
   it('bails out of run when the user declines the opencode install', async () => {
     const collector = createCollector();
     const code = await runCli(['run', '7'], {
