@@ -70,6 +70,7 @@ export class Orchestrator {
   private testReport = '(no tests run)';
   private testPlan = '';
   private reviewNote: ReviewNote | null = null;
+  private lastReviewReason = '';
 
   private readonly handlers: Readonly<
     Partial<Record<Phase, () => Promise<OrchestratorOutcome | null>>>
@@ -278,10 +279,26 @@ export class Orchestrator {
     if (decision.verdict === 'BLOCKED') {
       return { status: 'blocked', finalPhase: this.workflow.phase, reason: decision.reason };
     }
-    const command =
-      decision.verdict === 'APPROVED' ? COMMANDS.REVIEW_APPROVED : COMMANDS.CHANGES_REQUESTED;
-    this.apply(command);
+    if (decision.verdict === 'APPROVED') {
+      this.apply(COMMANDS.REVIEW_APPROVED);
+      return null;
+    }
+    return this.requestChanges(decision.reason);
+  }
+
+  private requestChanges(reason: string): OrchestratorOutcome | null {
+    if (this.repeatReview(reason)) {
+      return this.intervention(`the reviewer asked for the same thing twice: ${reason}`);
+    }
+    this.apply(COMMANDS.CHANGES_REQUESTED);
     return null;
+  }
+
+  private repeatReview(reason: string): boolean {
+    const normalized = reason.trim().toLowerCase();
+    const repeated = normalized.length > 0 && normalized === this.lastReviewReason;
+    this.lastReviewReason = normalized;
+    return repeated;
   }
 
   private async approveReviewGate(): Promise<OrchestratorOutcome | null> {

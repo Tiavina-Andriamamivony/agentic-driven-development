@@ -205,6 +205,38 @@ describe('Orchestrator', () => {
     expect(github.created).toHaveLength(0);
   });
 
+  it('asks a human when the reviewer sends back the same reason twice', async () => {
+    const { orchestrator, steps, git } = buildHarness({
+      reviewerReplies: [
+        reviewerReply('VERDICT: CHANGES_REQUESTED\nREASON: only subtask 1.1 landed'),
+        reviewerReply('VERDICT: CHANGES_REQUESTED\nREASON: only subtask 1.1 landed'),
+        reviewerReply(APPROVED_STDOUT),
+      ],
+    });
+
+    const outcome = await orchestrator.run();
+
+    expect(outcome.status).toBe('human-intervention');
+    expect(outcome.reason).toContain('only subtask 1.1 landed');
+    expect(steps.state.implementations).toBe(2);
+    expect(git.pushes).toBe(0);
+  });
+
+  it('keeps retrying while the reviewer keeps changing its reason', async () => {
+    const { orchestrator, steps } = buildHarness({
+      reviewerReplies: [
+        reviewerReply('VERDICT: CHANGES_REQUESTED\nREASON: missing the endpoint'),
+        reviewerReply('VERDICT: CHANGES_REQUESTED\nREASON: missing the spec file'),
+        reviewerReply(APPROVED_STDOUT),
+      ],
+    });
+
+    const outcome = await orchestrator.run();
+
+    expect(outcome.status).toBe('pr-created');
+    expect(steps.state.implementations).toBe(3);
+  });
+
   it('asks a human when the reviewer verdict cannot be read', async () => {
     const { orchestrator, workflow } = buildHarness({
       reviewerReplies: [reviewerReply('The diff looks reasonable to me overall.')],
