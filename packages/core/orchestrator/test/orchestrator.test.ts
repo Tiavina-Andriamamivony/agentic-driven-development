@@ -5,7 +5,7 @@ import { ReviewerAgent } from '@lou/reviewer';
 import { PHASES, Workflow } from '@lou/state-machine';
 import { describe, expect, it } from 'vitest';
 import { Orchestrator } from '../src/orchestrator.ts';
-import type { PlanDraft } from '../src/types.ts';
+import type { ChangeNote, PlanDraft } from '../src/types.ts';
 import { createAuditSpy } from './fake-audit.ts';
 import { createGitHubSpy } from './fake-github.ts';
 import { createGitSpy } from './fake-git.ts';
@@ -55,6 +55,15 @@ interface HarnessOptions {
     readonly tests: readonly string[];
     readonly implementation: readonly string[];
   };
+  readonly implementations?: readonly ChangeNote[];
+}
+
+function stepsOptions(options: HarnessOptions): Parameters<typeof createSteps>[2] {
+  const files = options.changedFiles;
+  return {
+    ...(files === undefined ? {} : { implementation: files.implementation, tests: files.tests }),
+    ...(options.implementations === undefined ? {} : { implementations: options.implementations }),
+  };
 }
 
 function buildHarness(options: HarnessOptions = {}) {
@@ -69,7 +78,7 @@ function buildHarness(options: HarnessOptions = {}) {
     review: options.reviewDecisions ?? [],
     answers: options.keeperAnswers ?? [],
   });
-  const steps = createSteps(plan, options.questions, 'implemented', options.changedFiles);
+  const steps = createSteps(plan, options.questions, stepsOptions(options));
   const runtime = new RuntimeRecorder(options.reviewerReplies ?? APPROVED_STDOUT_REPLIES);
   const reviewer = options.reviewer ?? new ReviewerAgent({ runtime });
   const orchestrator = new Orchestrator({
@@ -228,6 +237,48 @@ describe('Orchestrator', () => {
         reviewerReply('VERDICT: CHANGES_REQUESTED\nREASON: missing the endpoint'),
         reviewerReply('VERDICT: CHANGES_REQUESTED\nREASON: missing the spec file'),
         reviewerReply(APPROVED_STDOUT),
+      ],
+    });
+
+    const outcome = await orchestrator.run();
+
+    expect(outcome.status).toBe('pr-created');
+    expect(steps.state.implementations).toBe(3);
+  });
+
+  it('asks a human when the developer reports no change twice in a row', async () => {
+    const { orchestrator, steps, git } = buildHarness({
+      reviewerReplies: [
+        reviewerReply('VERDICT: CHANGES_REQUESTED\nREASON: the endpoint is missing'),
+        reviewerReply('VERDICT: CHANGES_REQUESTED\nREASON: now add the missing spec'),
+        reviewerReply(APPROVED_STDOUT),
+      ],
+      implementations: [
+        { changedFiles: ['src/index.ts'], summary: 'first' },
+        { changedFiles: [], summary: 'already done' },
+        { changedFiles: [], summary: 'already done, really' },
+      ],
+    });
+
+    const outcome = await orchestrator.run();
+
+    expect(outcome.status).toBe('human-intervention');
+    expect(outcome.reason).toContain('no change');
+    expect(steps.state.implementations).toBe(3);
+    expect(git.pushes).toBe(0);
+  });
+
+  it('keeps going when an empty attempt is followed by real work', async () => {
+    const { orchestrator, steps } = buildHarness({
+      reviewerReplies: [
+        reviewerReply('VERDICT: CHANGES_REQUESTED\nREASON: the spec file is missing'),
+        reviewerReply('VERDICT: CHANGES_REQUESTED\nREASON: the spec is still missing'),
+        reviewerReply(APPROVED_STDOUT),
+      ],
+      implementations: [
+        { changedFiles: ['src/index.ts'], summary: 'first' },
+        { changedFiles: [], summary: 'nothing this time' },
+        { changedFiles: ['src/index.spec.ts'], summary: 'now the spec' },
       ],
     });
 

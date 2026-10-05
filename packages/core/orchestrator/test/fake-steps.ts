@@ -6,6 +6,13 @@ import type {
   Understanding,
 } from '../src/types.ts';
 
+interface StepsOptions {
+  readonly summary?: string;
+  readonly tests?: readonly string[];
+  readonly implementation?: readonly string[];
+  readonly implementations?: readonly ChangeNote[];
+}
+
 interface StepsState {
   readonly understandCalls: readonly UnderstandInput[];
   readonly implementations: number;
@@ -21,12 +28,13 @@ interface StepsSpy {
 export function createSteps(
   plan: PlanDraft,
   questions: readonly string[] = [],
-  implementationSummary = 'implemented',
-  changedFiles?: { readonly tests: readonly string[]; readonly implementation: readonly string[] },
+  options: StepsOptions = {},
 ): StepsSpy {
   const understandCalls: UnderstandInput[] = [];
-  const testFiles = changedFiles?.tests ?? ['test/feature.spec.ts'];
-  const implementationFiles = changedFiles?.implementation ?? ['src/index.ts'];
+  const testFiles = options.tests ?? ['test/feature.spec.ts'];
+  const implementationFiles = options.implementation ?? ['src/index.ts'];
+  const summary = options.summary ?? 'implemented';
+  const queue = [...(options.implementations ?? [])];
   let implementations = 0;
   let testWrites = 0;
   let testDesigns = 0;
@@ -45,7 +53,7 @@ export function createSteps(
     },
     implement(): Promise<ChangeNote> {
       implementations += 1;
-      return Promise.resolve({ changedFiles: implementationFiles, summary: implementationSummary });
+      return Promise.resolve(queue.shift() ?? { changedFiles: implementationFiles, summary });
     },
   };
   return {

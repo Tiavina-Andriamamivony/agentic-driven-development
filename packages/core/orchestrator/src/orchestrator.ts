@@ -26,6 +26,7 @@ import type {
 
 const STEP_BUDGET = 256;
 const NO_COMMENT = '(no comment)';
+const STALLED_ATTEMPT_LIMIT = 2;
 const FALLBACK_PLAN: PlanDraft = {
   title: 'work in progress',
   branchName: 'feature/work',
@@ -67,6 +68,7 @@ export class Orchestrator {
   private implementation: ChangeNote = { changedFiles: [], summary: '(no implementation)' };
   private changedFiles: string[] = [];
   private implementationAttempts = 0;
+  private stalledAttempts = 0;
   private testReport = '(no tests run)';
   private testPlan = '';
   private reviewNote: ReviewNote | null = null;
@@ -235,7 +237,21 @@ export class Orchestrator {
     this.implementation = note;
     await this.recordChanges(note);
     this.apply(COMMANDS.IMPLEMENTATION_COMPLETE);
-    return null;
+    return this.checkProgress(note);
+  }
+
+  private checkProgress(note: ChangeNote): OrchestratorOutcome | null {
+    if (note.changedFiles.length > 0) {
+      this.stalledAttempts = 0;
+      return null;
+    }
+    this.stalledAttempts += 1;
+    if (this.stalledAttempts < STALLED_ATTEMPT_LIMIT) {
+      return null;
+    }
+    return this.intervention(
+      `the developer reported no change in ${this.stalledAttempts} consecutive attempts`,
+    );
   }
 
   private async verifyImplementation(): Promise<OrchestratorOutcome | null> {
