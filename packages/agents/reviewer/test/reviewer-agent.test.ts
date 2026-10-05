@@ -4,8 +4,11 @@ import { ReviewerAgent } from '../src/reviewer-agent.ts';
 
 class RecordingRuntime implements AgentRuntime {
   readonly calls: AgentRunInput[] = [];
+  private readonly stdout: string;
 
-  constructor(private readonly stdout: string) {}
+  constructor(stdout: string) {
+    this.stdout = stdout;
+  }
 
   run(input: AgentRunInput): Promise<AgentRunResult> {
     this.calls.push(input);
