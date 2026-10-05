@@ -589,7 +589,7 @@ export function buildRunEnvironment(request: RunTicketRequest): RunEnvironment {
       wiring.preflightVerifier ??
       new NodeTestRunner({ runner: createSandboxedRunner(options.cwd, TESTS_ROLE) }),
     conventions: 'conventional commits',
-    ask: wiring.ask ?? terminalQuestion,
+    ask: wiring.ask ?? createTerminalAsk(),
     out: (line) => {
       options.out(many ? `[#${issueNumber}] ${line}` : line);
     },
@@ -987,9 +987,11 @@ function errorMessage(error: unknown): string {
   return 'unknown error';
 }
 
-async function terminalQuestion(question: string): Promise<string> {
+function createTerminalAsk(): (question: string) => Promise<string> {
   const readline = createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await readline.question(question);
-  readline.close();
-  return answer;
+  let ended = false;
+  readline.on('close', () => {
+    ended = true;
+  });
+  return (question) => (ended ? Promise.resolve('') : readline.question(question));
 }
