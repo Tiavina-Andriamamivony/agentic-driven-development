@@ -13,8 +13,11 @@ interface RecordedCall {
 
 class RecordingRunner implements CommandRunner {
   readonly calls: RecordedCall[] = [];
+  private readonly result: CommandResult;
 
-  constructor(private readonly result: CommandResult) {}
+  constructor(result: CommandResult) {
+    this.result = result;
+  }
 
   run(
     command: string,
@@ -311,5 +314,39 @@ describe('NodeTestRunner', () => {
     const adapter = new NodeTestRunner();
 
     await expect(adapter.run({ cwd: join(dir, 'missing') })).rejects.toBeInstanceOf(Error);
+  });
+
+  it('refuses to pass when the test script only runs a type checker', async () => {
+    seedManifest({ test: 'tsc --noEmit' });
+    const adapter = new NodeTestRunner({
+      runner: new RecordingRunner({
+        exitCode: 0,
+        stdout: '$ tsc --noEmit',
+        stderr: '',
+        interrupted: false,
+      }),
+    });
+
+    const result = await adapter.run({ cwd: dir });
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('tsc');
+    expect(result.retryable).toBe(false);
+  });
+
+  it('still passes when a type check precedes a real test runner', async () => {
+    seedManifest({ test: 'tsc --noEmit && vitest run' });
+    const adapter = new NodeTestRunner({
+      runner: new RecordingRunner({
+        exitCode: 0,
+        stdout: 'Test Files  1 passed (1)',
+        stderr: '',
+        interrupted: false,
+      }),
+    });
+
+    const result = await adapter.run({ cwd: dir });
+
+    expect(result.passed).toBe(true);
   });
 });
