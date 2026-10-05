@@ -43,11 +43,41 @@ const PLACEHOLDER_FILES: ReadonlySet<string> = new Set([
   '(none)',
   'no changes',
 ]);
+const PLACEHOLDER_WORDS: ReadonlySet<string> = new Set([
+  ...PLACEHOLDER_FILES,
+  'no change',
+  'unchanged',
+  'nothing changed',
+  'already done',
+]);
+const STATE_ANNOTATION = /\s*\((?:deleted|new|modified|renamed|created|removed|updated)\)\s*$/i;
+const PROSE_SEPARATORS = ['—', ' – ', ' - ', ';', '  '];
+
+function isProse(entry: string): boolean {
+  if (PROSE_SEPARATORS.some((separator) => entry.includes(separator))) {
+    return true;
+  }
+  const firstWord = entry
+    .toLowerCase()
+    .replace(/^[(\s]+/, '')
+    .split(/[\s,;:—–-]/, 1)
+    .at(0);
+  return firstWord !== undefined && PLACEHOLDER_WORDS.has(firstWord);
+}
+
+function candidatePaths(entry: string): readonly string[] {
+  const trimmed = entry.trim();
+  if (trimmed.length === 0 || PLACEHOLDER_FILES.has(trimmed.toLowerCase()) || isProse(trimmed)) {
+    return [];
+  }
+  return trimmed
+    .split(',')
+    .map((candidate) => candidate.trim().replace(STATE_ANNOTATION, '').trim())
+    .filter((candidate) => candidate.length > 0);
+}
 
 function changedPaths(stdout: string): readonly string[] {
-  return matchAll(stdout, CHANGED_PATTERN)
-    .map((entry) => entry.trim())
-    .filter((entry) => !PLACEHOLDER_FILES.has(entry.toLowerCase()));
+  return matchAll(stdout, CHANGED_PATTERN).flatMap(candidatePaths);
 }
 export function createOpenCodeSteps(options: OpenCodeStepsOptions): OrchestratorSteps {
   const { runtime, workspace, model, modelsByAgent, mcp, onOutput, onActivity } = options;

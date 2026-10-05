@@ -133,6 +133,72 @@ describe('createOpenCodeSteps', () => {
     expect(note.changedFiles).toEqual(['math.ts']);
   });
 
+  it('drops a CHANGED line that opens with a placeholder and continues in prose', async () => {
+    const runtime = createFakeRuntime([
+      resultFor(
+        'CHANGED: none — commit #1 (72933b0) already implemented the pnpm foundation; verified green, no edits required\nSUMMARY: nothing to do',
+      ),
+    ]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual([]);
+  });
+
+  it('drops a parenthesised placeholder that trails off into a sentence', async () => {
+    const runtime = createFakeRuntime([
+      resultFor('CHANGED: (none — verified existing commit 72933b0)\nSUMMARY: done'),
+    ]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual([]);
+  });
+
+  it('splits a CHANGED line that lists several paths at once', async () => {
+    const runtime = createFakeRuntime([
+      resultFor('CHANGED: package.json, pnpm-lock.yaml, README.md\nSUMMARY: ok'),
+    ]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual(['package.json', 'pnpm-lock.yaml', 'README.md']);
+  });
+
+  it('strips the state annotation an agent appends to a path', async () => {
+    const runtime = createFakeRuntime([
+      resultFor('CHANGED: package.json (modified), package-lock.json (deleted)\nSUMMARY: ok'),
+    ]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual(['package.json', 'package-lock.json']);
+  });
+
+  it('keeps the real paths of a sentence that also announces no change', async () => {
+    const runtime = createFakeRuntime([
+      resultFor('CHANGED: none — except src/math.ts which I added\nSUMMARY: ok'),
+    ]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual([]);
+  });
+
+  it('keeps a path that contains a dot and a dash', async () => {
+    const runtime = createFakeRuntime([resultFor('CHANGED: src/my-module.v2.ts\nSUMMARY: ok')]);
+    const steps = createOpenCodeSteps({ runtime, workspace: '/work' });
+
+    const note = await steps.writeTests(PLAN, '');
+
+    expect(note.changedFiles).toEqual(['src/my-module.v2.ts']);
+  });
+
   it('parses the implemented change note', async () => {
     const runtime = createFakeRuntime([
       resultFor('CHANGED: src/reset.ts\nCHANGED: src/reset.spec.ts\nSUMMARY: implemented'),
