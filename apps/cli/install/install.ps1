@@ -53,9 +53,9 @@ function Find-Node {
   if (-not $command) {
     throw "Node.js was not found ($Node). Install Node 22 or newer: winget install OpenJS.NodeJS.LTS — then re-run."
   }
-  & $command.Source --experimental-transform-types -e 'console.log("ok")' 2>$null | Out-Null
+  & $command.Source --experimental-strip-types -e 'console.log("ok")' 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) {
-    throw "Your Node ($(& $command.Source --version)) lacks --experimental-transform-types. Use Node 22.7 or newer."
+    throw "Your Node ($(& $command.Source --version)) lacks --experimental-strip-types. Use Node 22.7 or newer."
   }
   $script:NodePath = $command.Source
   $script:NodeVersion = & $NodePath --version
@@ -95,7 +95,7 @@ function Install-Launcher {
   $louCmd = Join-Path $binDir 'lou.cmd'
   @"
 @echo off
-"$NodePath" --no-warnings --experimental-transform-types "$src" %*
+"$NodePath" --no-warnings --experimental-strip-types "$src" %*
 "@ | Set-Content -Path $louCmd -Encoding ascii
 }
 
@@ -141,7 +141,7 @@ function Install-Deps {
 }
 
 function Verify {
-  & $NodePath --no-warnings --experimental-transform-types (Join-Path $Prefix "current\apps\cli\src\cli.ts") --version 2>$null | Out-Null
+  & $NodePath --no-warnings --experimental-strip-types (Join-Path $Prefix "current\apps\cli\src\cli.ts") --version 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'The lou launcher failed to start.' }
 }
 
@@ -163,7 +163,7 @@ Write-Host ''
 Write-Host "  Lou $Version installed." -ForegroundColor Green
 Write-Host "  Binary : $(Join-Path $Prefix 'bin\lou.cmd')"
 Write-Host "  Sources: $(Join-Path $Prefix 'current')"
-Write-Host "  Version: $(& $NodePath --no-warnings --experimental-transform-types (Join-Path $Prefix 'current\apps\cli\src\cli.ts') --version)"
+Write-Host "  Version: $(& $NodePath --no-warnings --experimental-strip-types (Join-Path $Prefix 'current\apps\cli\src\cli.ts') --version)"
 Write-Host ''
 Write-Host 'Next steps:' -ForegroundColor Yellow
 Write-Host '  1. Open a new terminal so lou is on your PATH'

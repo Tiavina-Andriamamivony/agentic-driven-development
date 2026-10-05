@@ -29,7 +29,7 @@ understand → askClarifications → build plan with the **real** `OpenCodeRunti
 approval gate:
 
 ```bash
-node --no-warnings --experimental-transform-types apps/cli/src/cli.ts run 17 --dry-run
+node --no-warnings --experimental-strip-types apps/cli/src/cli.ts run 17 --dry-run
 ```
 
 Observed on the open issue #17:
@@ -50,7 +50,7 @@ subprocess (see #20). No branch, commit, PR or working-tree change occurred
 
 ```bash
 # 1. Prerequisites (validated by `lou doctor`)
-node --no-warnings --experimental-transform-types apps/cli/src/cli.ts doctor
+node --no-warnings --experimental-strip-types apps/cli/src/cli.ts doctor
 
 # 2. Safe preview — stops right after the plan gate, no side effects
 lou run <issue-number> --dry-run

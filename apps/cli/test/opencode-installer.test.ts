@@ -23,7 +23,7 @@ process.stdout.write('DETECTED=' + found);
 `;
   return execFileSync(
     process.execPath,
-    ['--no-warnings', '--experimental-transform-types', '--input-type=module', '--eval', script],
+    ['--no-warnings', '--experimental-strip-types', '--input-type=module', '--eval', script],
     { encoding: 'utf8', env: { ...process.env, PATH: binDir, HOME: home } },
   );
 }

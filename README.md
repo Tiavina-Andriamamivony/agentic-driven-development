@@ -137,7 +137,7 @@ rm -rf ~/.lou        # Linux / macOS
 git clone https://github.com/Tiavina-Andriamamivony/lou-agents-orchestrator.git
 cd lou-agents-orchestrator
 pnpm install
-pnpm --filter @lou/cli exec tsx src/cli.ts --help   # or: node --no-warnings --experimental-transform-types apps/cli/bin/lou.js --help
+pnpm --filter @lou/cli exec tsx src/cli.ts --help   # or: node --no-warnings --experimental-strip-types apps/cli/bin/lou.js --help
 ```
 
 ## Your first run, step by step
@@ -241,7 +241,7 @@ It verifies five things:
 
 | Check                 | What it verifies                                           |
 | --------------------- | ---------------------------------------------------------- |
-| `Node runtime`        | Node 22.7+ and the `--experimental-transform-types` flag   |
+| `Node runtime`        | Node 22.7+ and the `--experimental-strip-types` flag       |
 | `pnpm`                | pnpm is reachable                                          |
 | `GitHub CLI`          | `gh` is installed and you are logged in (`gh auth status`) |
 | `opencode` / `claude` | the chosen agent runtime answers `--version`               |

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const entry = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 const result = spawnSync(
   process.execPath,
-  ['--no-warnings', '--experimental-transform-types', entry, ...process.argv.slice(2)],
+  ['--no-warnings', '--experimental-strip-types', entry, ...process.argv.slice(2)],
   { stdio: 'inherit' },
 );
 process.exit(result.status ?? 1);
