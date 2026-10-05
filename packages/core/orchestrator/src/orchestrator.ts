@@ -330,15 +330,16 @@ export class Orchestrator {
   }
 
   private async publish(): Promise<OrchestratorOutcome | null> {
-    if (this.changedFiles.length === 0) {
-      return this.failure('the agents reported no file change');
+    const claimed = await this.claimablePaths();
+    if (claimed.length === 0) {
+      return this.failure('the agents reported no file change git can see');
     }
-    await this.git.stage(this.changedFiles);
+    await this.git.stage(claimed);
     await this.audit.record(
       this.event('tool_called', {
         tool: 'git.stage',
         risk: 'low',
-        target: `${this.changedFiles.length}`,
+        target: `${claimed.length}`,
       }),
     );
     await this.git.commit(this.plan.commitMessage);
@@ -383,6 +384,14 @@ export class Orchestrator {
       return;
     }
     throw new UnrunnableTestsError(result.reason ?? 'tests cannot run in this workspace');
+  }
+
+  private async claimablePaths(): Promise<readonly string[]> {
+    if (this.changedFiles.length === 0) {
+      return [];
+    }
+    const seen = await this.git.changedPaths();
+    return this.changedFiles.filter((file) => seen.includes(file));
   }
 
   private async recordChanges(note: ChangeNote): Promise<void> {

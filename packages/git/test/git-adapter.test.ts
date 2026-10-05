@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -27,6 +27,41 @@ afterEach(() => {
 describe('NodeGitAdapter', () => {
   it('reports the working tree as clean when nothing changed', async () => {
     await expect(adapter.isClean()).resolves.toBe(true);
+  });
+
+  it('lists no changed path when the tree is clean', async () => {
+    await expect(adapter.changedPaths()).resolves.toEqual([]);
+  });
+
+  it('lists a modified file', async () => {
+    writeFileSync(join(dir, 'file.txt'), 'hello');
+
+    await expect(adapter.changedPaths()).resolves.toEqual(['file.txt']);
+  });
+
+  it('lists a file inside a new directory', async () => {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src/index.ts'), 'export const a = 1;');
+
+    await expect(adapter.changedPaths()).resolves.toEqual(['src/index.ts']);
+  });
+
+  it('lists a deleted file', async () => {
+    writeFileSync(join(dir, 'gone.txt'), 'bye');
+    git(['add', '.']);
+    git(['commit', '-m', 'chore: seed']);
+    rmSync(join(dir, 'gone.txt'));
+
+    await expect(adapter.changedPaths()).resolves.toEqual(['gone.txt']);
+  });
+
+  it('reports a renamed file under its new name', async () => {
+    writeFileSync(join(dir, 'before.txt'), 'x');
+    git(['add', '.']);
+    git(['commit', '-m', 'chore: seed']);
+    git(['mv', 'before.txt', 'after.txt']);
+
+    await expect(adapter.changedPaths()).resolves.toEqual(['after.txt']);
   });
 
   it('reports the working tree as dirty when a file is modified', async () => {

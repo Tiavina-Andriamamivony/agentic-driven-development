@@ -50,12 +50,17 @@ interface HarnessOptions {
   readonly testScripts?: readonly TestRunScript[];
   readonly reviewerReplies?: readonly RuntimeReply[];
   readonly reviewer?: ReviewerAgent;
+  readonly visiblePaths?: readonly string[];
   readonly keeperAnswers?: readonly string[];
   readonly changedFiles?: {
     readonly tests: readonly string[];
     readonly implementation: readonly string[];
   };
   readonly implementations?: readonly ChangeNote[];
+}
+
+function gitSpyOptions(options: HarnessOptions): Parameters<typeof createGitSpy>[0] {
+  return options.visiblePaths === undefined ? {} : { visible: options.visiblePaths };
 }
 
 function stepsOptions(options: HarnessOptions): Parameters<typeof createSteps>[2] {
@@ -69,7 +74,7 @@ function stepsOptions(options: HarnessOptions): Parameters<typeof createSteps>[2
 function buildHarness(options: HarnessOptions = {}) {
   const plan = options.plan ?? PLAN;
   const workflow = new Workflow();
-  const git = createGitSpy();
+  const git = createGitSpy(gitSpyOptions(options));
   const github = createGitHubSpy(ISSUE);
   const runner = createTestRunner(options.testScripts);
   const audit = createAuditSpy();
@@ -286,6 +291,26 @@ describe('Orchestrator', () => {
 
     expect(outcome.status).toBe('pr-created');
     expect(steps.state.implementations).toBe(3);
+  });
+
+  it('refuses to open a pull request when git sees none of the claimed files', async () => {
+    const { orchestrator, git, github } = buildHarness({ visiblePaths: [] });
+
+    const outcome = await orchestrator.run();
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.reason).toContain('no file change git can see');
+    expect(git.staged).toEqual([]);
+    expect(git.commits).toEqual([]);
+    expect(github.created).toHaveLength(0);
+  });
+
+  it('stages only the claimed files that git can see', async () => {
+    const { orchestrator, git } = buildHarness({ visiblePaths: ['src/index.ts'] });
+
+    await orchestrator.run();
+
+    expect(git.staged).toEqual(['src/index.ts']);
   });
 
   it('asks a human when the reviewer verdict cannot be read', async () => {

@@ -5,4 +5,5 @@ export interface GitAdapter {
   push(): Promise<void>;
   getCurrentBranch(): Promise<string>;
   isClean(): Promise<boolean>;
+  changedPaths(): Promise<readonly string[]>;
 }
