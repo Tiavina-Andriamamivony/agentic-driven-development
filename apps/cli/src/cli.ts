@@ -14,7 +14,7 @@ import { createLocalOpenCodeInstaller } from './ux/opencode-installer.ts';
 import type { OpenCodeInstaller } from './ux/opencode-installer.ts';
 import { ensureOpenCode } from './ux/preflight.ts';
 import type { EnsureOpenCodeOptions } from './ux/preflight.ts';
-import { createStyler } from './ux/style.ts';
+import { createStyler, resolveColorEnabled } from './ux/style.ts';
 import type { Styler } from './ux/style.ts';
 import { createGhLatestFetcher } from './upgrade/latest-release.ts';
 import { LOU_REPO } from './upgrade/latest-release.ts';
@@ -271,7 +271,7 @@ export function main(argv?: readonly string[]): Promise<number> {
     reader: createNodeProjectReader(),
     cwd: process.cwd(),
     interactive: process.stdin.isTTY,
-    style: createStyler(process.stdout.isTTY),
+    style: createStyler(resolveColorEnabled(process.stdout.isTTY)),
     upgrade: defaultUpgradeDependencies(),
     upgradeNotice: createUpgradeNotice(),
     out: (line: string) => process.stdout.write(`${line}\n`),
@@ -330,7 +330,7 @@ function defaultUpgradeDependencies(): UpgradeDependencies {
 function createUpgradeNotice(): () => Promise<void> {
   const interactive = process.stdin.isTTY;
   const out = (line: string) => process.stdout.write(`${line}\n`);
-  const style = createStyler(process.stdout.isTTY);
+  const style = createStyler(resolveColorEnabled(process.stdout.isTTY));
   return () =>
     maybeNotifyUpgrade({
       currentVersion: readVersion(),

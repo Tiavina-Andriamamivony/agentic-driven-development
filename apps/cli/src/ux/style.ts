@@ -38,6 +38,23 @@ const AGENT_TONES: Readonly<Record<string, string>> = {
   reviewer: ORANGE,
 };
 
+export function resolveColorEnabled(
+  isTty: boolean,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  const forced = env['FORCE_COLOR'];
+  if (forced !== undefined && forced !== '0' && forced !== 'false') {
+    return true;
+  }
+  if (env['NO_COLOR'] !== undefined) {
+    return false;
+  }
+  if (env['TERM'] === 'dumb') {
+    return false;
+  }
+  return isTty;
+}
+
 export function createStyler(enabled: boolean): Styler {
   const paint = enabled
     ? (params: string, text: string): string => `\x1b[${params}m${text}\x1b[0m`

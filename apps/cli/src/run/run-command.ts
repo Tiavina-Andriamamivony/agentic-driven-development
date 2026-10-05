@@ -49,7 +49,7 @@ import { mapWithConcurrency } from './concurrency.ts';
 import { createTerminalKeeper } from './terminal-keeper.ts';
 import { createRunTrace } from './run-trace.ts';
 import type { RunTrace } from './run-trace.ts';
-import { createStyler } from '../ux/style.ts';
+import { createStyler, resolveColorEnabled } from '../ux/style.ts';
 import type { Styler } from '../ux/style.ts';
 
 export interface RunEnvironment {
@@ -742,7 +742,7 @@ export async function runTicket(env: RunEnvironment): Promise<number> {
   if (issue === null) {
     return 1;
   }
-  const style = createStyler(env.isTty ?? process.stdout.isTTY);
+  const style = createStyler(resolveColorEnabled(env.isTty ?? process.stdout.isTTY));
   const invocation = newInvocationId();
   if (!(await preflightOk(env, style, invocation))) {
     return 1;
@@ -821,7 +821,7 @@ function buildOrchestrator(input: {
     keeper: createTerminalKeeper({
       ask: env.ask,
       out: env.out,
-      style: createStyler(env.isTty ?? process.stdout.isTTY),
+      style: createStyler(resolveColorEnabled(env.isTty ?? process.stdout.isTTY)),
     }),
     reviewer: new ReviewerAgent({
       runtime,
@@ -850,7 +850,7 @@ async function runDryRun(
   const keeper: HumanKeeper = createTerminalKeeper({
     ask: env.ask,
     out: env.out,
-    style: createStyler(env.isTty ?? process.stdout.isTTY),
+    style: createStyler(resolveColorEnabled(env.isTty ?? process.stdout.isTTY)),
   });
   try {
     let understanding = await trace.work('planner', () =>
