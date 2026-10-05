@@ -53,7 +53,7 @@ use the **Lou** brand.
   wires the real adapters (Git, GitHub, OpenCode runtime, test runner, reviewer,
   audit file under `.lou/runs/`, terminal `HumanKeeper`) into the orchestrator and
   drives the ticket to a pull request. The `lou` bin runs TypeScript sources directly
-  through `node --no-warnings --experimental-transform-types`. One-line installers
+  through `node --no-warnings --experimental-strip-types`. One-line installers
   (`apps/cli/install/install.sh` for Linux/macOS, `install.ps1` for Windows) fetch the
   sources from GitHub, run `pnpm install --prod --frozen-lockfile --ignore-scripts` and
   wire the `lou` launcher onto the PATH.
@@ -96,7 +96,7 @@ green pipeline.
 - TypeScript strict with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
   `noImplicitOverride`. Zero warnings, always.
 - Every relative import uses an explicit `.ts` extension (`./audit-log.ts`, `../types.ts`).
-  The source is executed directly by Node (`--experimental-transform-types`), which resolves
+  The source is executed directly by Node (`--experimental-strip-types`), which resolves
   only full specifiers; `tsconfig.base.json` sets `allowImportingTsExtensions`.
 - `tsconfig.base.json` extends to every workspace; one tsconfig per package mirroring
   `packages/core/state-machine/` and `apps/cli/` (`noEmit`, `allowImportingTsExtensions`).

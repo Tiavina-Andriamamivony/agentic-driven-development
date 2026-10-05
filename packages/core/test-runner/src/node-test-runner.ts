@@ -1,6 +1,7 @@
 import type { CommandResult, CommandRunner } from '@lou/command-runner';
 import { NodeCommandRunner } from '@lou/command-runner';
-import { detectTestScript } from './detect-test-script.ts';
+import { detectTestScript, readTestScript } from './detect-test-script.ts';
+import { nonTestScriptTool } from './non-test-script.ts';
 import { runnerWithoutTests } from './no-tests.ts';
 import type { TestResult, TestRunner, TestRunOptions } from './test-runner.ts';
 
@@ -21,8 +22,9 @@ export class NodeTestRunner implements TestRunner {
 
   async run(options: TestRunOptions): Promise<TestResult> {
     const script = this.defaultedScript(options);
-    if (script !== null && detectTestScript(options.cwd, script) === 'missing') {
-      return refused(options.cwd, `no test script named "${script}" in package.json`);
+    const refusal = script === null ? null : refuseScript(options.cwd, script);
+    if (refusal !== null) {
+      return refusal;
     }
     const command = options.command ?? DEFAULT_COMMAND;
     const args = options.args ?? DEFAULT_ARGS;
@@ -40,6 +42,22 @@ export class NodeTestRunner implements TestRunner {
     }
     return DEFAULT_SCRIPT;
   }
+}
+
+function refuseScript(cwd: string, script: string): TestResult | null {
+  const presence = detectTestScript(cwd, script);
+  if (presence === 'missing') {
+    return refused(cwd, `no test script named "${script}" in package.json`);
+  }
+  if (presence !== 'declared') {
+    return null;
+  }
+  const declared = readTestScript(cwd, script);
+  const tool = declared === null ? null : nonTestScriptTool(declared);
+  if (tool === null) {
+    return null;
+  }
+  return refused(cwd, `the "${script}" script only runs \`${tool}\`, which executes no test`);
 }
 
 function spoke(result: CommandResult): boolean {

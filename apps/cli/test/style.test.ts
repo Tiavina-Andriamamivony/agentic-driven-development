@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createStyler } from '../src/ux/style';
+import { createStyler, resolveColorEnabled } from '../src/ux/style';
 
 describe('createStyler', () => {
   it('wraps selected text in ANSI codes when enabled', () => {
@@ -25,5 +25,25 @@ describe('createStyler', () => {
     expect(style.check(true)).toBe('✔');
     expect(style.check(false)).toBe('✖');
     expect(style.banner('Lou')).toBe('Lou');
+  });
+});
+
+describe('resolveColorEnabled', () => {
+  it('follows the terminal when nothing overrides it', () => {
+    expect(resolveColorEnabled(true, {})).toBe(true);
+    expect(resolveColorEnabled(false, {})).toBe(false);
+  });
+
+  it('honours NO_COLOR', () => {
+    expect(resolveColorEnabled(true, { NO_COLOR: '1' })).toBe(false);
+  });
+
+  it('honours FORCE_COLOR even when the output is piped', () => {
+    expect(resolveColorEnabled(false, { FORCE_COLOR: '1' })).toBe(true);
+    expect(resolveColorEnabled(true, { FORCE_COLOR: '0' })).toBe(true);
+  });
+
+  it('disables colour on a dumb terminal', () => {
+    expect(resolveColorEnabled(true, { TERM: 'dumb' })).toBe(false);
   });
 });

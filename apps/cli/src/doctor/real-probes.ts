@@ -45,7 +45,7 @@ function nodeProbe(): DoctorCheck {
     };
   }
   const probe = runCommand(process.execPath, [
-    '--experimental-transform-types',
+    '--experimental-strip-types',
     '-e',
     'console.log("ok")',
   ]);
@@ -53,7 +53,7 @@ function nodeProbe(): DoctorCheck {
     return {
       label: 'Node runtime',
       ok: false,
-      detail: '--experimental-transform-types probe failed',
+      detail: '--experimental-strip-types probe failed',
     };
   }
   return { label: 'Node runtime', ok: true, detail: `v${parsed.value}` };

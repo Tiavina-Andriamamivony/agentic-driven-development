@@ -11,7 +11,11 @@ export interface ConstitutionFile {
 }
 
 export class NodeConstitutionStore {
-  constructor(private readonly root: string) {}
+  private readonly root: string;
+
+  constructor(root: string) {
+    this.root = root;
+  }
 
   async load(): Promise<ConstitutionFile> {
     const path = this.path;

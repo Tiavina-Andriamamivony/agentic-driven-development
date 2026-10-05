@@ -16,8 +16,11 @@ export class RuntimeRecorder implements AgentRuntime {
     interrupted: false,
   };
   private index = 0;
+  private readonly replies: readonly RuntimeReply[];
 
-  constructor(private readonly replies: readonly RuntimeReply[]) {}
+  constructor(replies: readonly RuntimeReply[]) {
+    this.replies = replies;
+  }
 
   run(input: AgentRunInput): Promise<AgentRunResult> {
     this.runs.push(input);

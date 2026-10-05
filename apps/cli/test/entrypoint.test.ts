@@ -15,7 +15,7 @@ describe('cli entry point', () => {
 
     const stdout = execFileSync(
       process.execPath,
-      ['--no-warnings', '--experimental-transform-types', link, '--version'],
+      ['--no-warnings', '--experimental-strip-types', link, '--version'],
       { encoding: 'utf8' },
     );
 

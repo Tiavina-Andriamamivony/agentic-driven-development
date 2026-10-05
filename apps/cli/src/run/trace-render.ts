@@ -90,14 +90,22 @@ export function liveLine(input: LiveInput): string {
   const head = `${input.frame} ${input.label}`;
   const quietFor = input.silentFor ?? '';
   const room =
-    input.columns - ITEM.length - head.length - input.duration.length - quietFor.length - 4;
+    input.columns -
+    ITEM.length -
+    visibleLength(head) -
+    visibleLength(input.duration) -
+    visibleLength(quietFor) -
+    4;
   const activity = withSilence(input.activity, quietFor, Math.max(MIN_ACTIVITY, room));
   const plain = activity === '' ? head : `${head} ${DOT} ${activity}`;
   const lead = `${input.style.tone(input.label, input.frame)} ${input.style.agent(input.label)}`;
   if (input.duration === '') {
     return `${ITEM}${lead}${body(input, activity)}`;
   }
-  const gap = Math.max(1, input.columns - ITEM.length - plain.length - input.duration.length);
+  const gap = Math.max(
+    1,
+    input.columns - ITEM.length - visibleLength(plain) - visibleLength(input.duration),
+  );
   return `${ITEM}${lead}${body(input, activity)}${' '.repeat(gap)}${input.style.dim(input.duration)}`;
 }
 
@@ -195,9 +203,14 @@ export function gateLines(input: GateInput): readonly string[] {
   return ['', heading, subject, ...details, ''];
 }
 
+function visibleLength(text: string): number {
+  return Array.from(text).length;
+}
+
 function truncate(text: string, max: number): string {
-  if (text.length <= max) {
+  const characters = Array.from(text);
+  if (characters.length <= max) {
     return text;
   }
-  return `${TAIL}${text.slice(text.length - max + 1)}`;
+  return `${TAIL}${characters.slice(characters.length - max + 1).join('')}`;
 }
