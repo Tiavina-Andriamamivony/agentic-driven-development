@@ -66,6 +66,7 @@ export class Orchestrator {
   private understanding: Understanding | null = null;
   private implementation: ChangeNote = { changedFiles: [], summary: '(no implementation)' };
   private changedFiles: string[] = [];
+  private implementationAttempts = 0;
   private testReport = '(no tests run)';
   private testPlan = '';
   private reviewNote: ReviewNote | null = null;
@@ -220,7 +221,16 @@ export class Orchestrator {
   }
 
   private async implement(): Promise<OrchestratorOutcome | null> {
-    const note = await this.runAgent('developer', () => this.steps.implement(this.plan));
+    this.implementationAttempts += 1;
+    const note = await this.runAgent('developer', () =>
+      this.steps.implement({
+        plan: this.plan,
+        issue: this.issue,
+        review: this.reviewNote,
+        attempt: this.implementationAttempts,
+        alreadyDelivered: this.changedFiles,
+      }),
+    );
     this.implementation = note;
     await this.recordChanges(note);
     this.apply(COMMANDS.IMPLEMENTATION_COMPLETE);

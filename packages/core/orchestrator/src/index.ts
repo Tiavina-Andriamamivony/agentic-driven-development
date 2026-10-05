@@ -8,6 +8,7 @@ export type {
   ApprovalRequest,
   ChangeNote,
   HumanKeeper,
+  ImplementInput,
   OrchestratorOutcome,
   OrchestratorStatus,
   OrchestratorSteps,
