@@ -6,11 +6,10 @@ export class RunningCommand {
   private stderrChunks: string[] = [];
   private didInterrupt = false;
   private readonly timer: ReturnType<typeof setTimeout> | undefined;
+  private readonly child: ChildProcess;
 
-  constructor(
-    private readonly child: ChildProcess,
-    options: CommandRunOptions,
-  ) {
+  constructor(child: ChildProcess, options: CommandRunOptions) {
+    this.child = child;
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     const onStdout = options.onStdout;

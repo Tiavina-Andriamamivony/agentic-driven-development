@@ -64,8 +64,10 @@ class LiveTrace implements RunTrace {
   private stream: StreamView = EMPTY_STREAM;
   private frame = 0;
   private files = 0;
+  private readonly options: RunTraceOptions;
 
-  constructor(private readonly options: RunTraceOptions) {
+  constructor(options: RunTraceOptions) {
+    this.options = options;
     this.period = options.isTty ? SPIN_MS : BEAT_MS;
     this.ticker = (): void => {
       this.refresh();

@@ -115,8 +115,8 @@ find_node() {
   if ! cmd_exists "$NODE_BIN"; then
     abort "Node.js was not found ($NODE_BIN). Install Node v22 or newer from https://nodejs.org"
   fi
-  if ! "$NODE_BIN" --experimental-transform-types -e 'console.log("ok")' >/dev/null 2>&1; then
-    abort "Your Node ($("$NODE_BIN" --version)) lacks --experimental-transform-types. Use Node v22.7 or newer."
+  if ! "$NODE_BIN" --experimental-strip-types -e 'console.log("ok")' >/dev/null 2>&1; then
+    abort "Your Node ($("$NODE_BIN" --version)) lacks --experimental-strip-types. Use Node v22.7 or newer."
   fi
 }
 
@@ -164,7 +164,7 @@ install_launcher() {
   mkdir -p "$PREFIX/bin"
   cat >"$PREFIX/bin/lou" <<EOF
 #!/usr/bin/env bash
-exec "$NODE_BIN" --no-warnings --experimental-transform-types "$src" "\$@"
+exec "$NODE_BIN" --no-warnings --experimental-strip-types "$src" "\$@"
 EOF
   chmod +x "$PREFIX/bin/lou"
 }

@@ -21,6 +21,8 @@ const style = createStyler(false);
 const plain = createStyler(true);
 const WIDTH = 60;
 
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
 function visible(text: string): string {
   return text.replace(new RegExp(`${ESC}\\[[0-9;]*m`, 'g'), '');
 }
@@ -87,6 +89,13 @@ describe('liveLine', () => {
     const line = liveLine({ ...base, activity: 'x'.repeat(300), duration: '12s' });
 
     expect(line.length).toBeLessThanOrEqual(WIDTH);
+    expect(visible(line)).toContain('…');
+  });
+
+  it('never cuts an emoji in half when it truncates', () => {
+    const line = liveLine({ ...base, activity: '🎉'.repeat(200), duration: '12s' });
+
+    expect(LONE_SURROGATE.test(line)).toBe(false);
     expect(visible(line)).toContain('…');
   });
 

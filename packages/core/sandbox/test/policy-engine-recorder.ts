@@ -14,8 +14,11 @@ export const askHuman = (): PolicyDecision => ({
 
 export class RecordingPolicyEngine implements PolicyEngine {
   readonly actions: Action[] = [];
+  private readonly decision: PolicyDecision;
 
-  constructor(private readonly decision: PolicyDecision) {}
+  constructor(decision: PolicyDecision) {
+    this.decision = decision;
+  }
 
   evaluate(action: Action): Promise<PolicyDecision> {
     this.actions.push(action);

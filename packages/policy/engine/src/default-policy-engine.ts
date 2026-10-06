@@ -7,7 +7,11 @@ const FAIL_CLOSED_RULE = 'default-fail-closed';
 const FAIL_CLOSED_REASON = 'no rule matched; failing closed';
 
 export class DefaultPolicyEngine implements PolicyEngine {
-  constructor(private readonly rules: readonly PolicyRule[]) {}
+  private readonly rules: readonly PolicyRule[];
+
+  constructor(rules: readonly PolicyRule[]) {
+    this.rules = rules;
+  }
 
   evaluate(action: Action): Promise<PolicyDecision> {
     return new Promise<PolicyDecision>((resolve) => {

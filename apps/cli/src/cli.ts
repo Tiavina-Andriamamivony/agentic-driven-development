@@ -14,7 +14,7 @@ import { createLocalOpenCodeInstaller } from './ux/opencode-installer.ts';
 import type { OpenCodeInstaller } from './ux/opencode-installer.ts';
 import { ensureOpenCode } from './ux/preflight.ts';
 import type { EnsureOpenCodeOptions } from './ux/preflight.ts';
-import { createStyler } from './ux/style.ts';
+import { createStyler, resolveColorEnabled } from './ux/style.ts';
 import type { Styler } from './ux/style.ts';
 import { createGhLatestFetcher } from './upgrade/latest-release.ts';
 import { LOU_REPO } from './upgrade/latest-release.ts';
@@ -26,7 +26,11 @@ import {
   runUpgrade,
 } from './upgrade/upgrade-command.ts';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MS, maybeNotifyUpgrade } from './upgrade/upgrade-notice.ts';
-import { AGENT_RUNTIME_NAMES, readAgentRuntimeName } from './run/agent-runtime-factory.ts';
+import {
+  AGENT_RUNTIME_NAMES,
+  DEFAULT_AGENT_RUNTIME,
+  readAgentRuntimeName,
+} from './run/agent-runtime-factory.ts';
 import type { AgentRuntimeName } from './run/agent-runtime-factory.ts';
 import { createNodeRunsStore, runListRuns } from './runs/runs-list.ts';
 import type { RunsStore } from './runs/runs-list.ts';
@@ -196,6 +200,10 @@ async function offerOpenCodeInstall(env: CliEnv): Promise<void> {
   }
 }
 
+function needsOpenCode(parsed: RunArguments): boolean {
+  return (parsed.runtime ?? DEFAULT_AGENT_RUNTIME) === DEFAULT_AGENT_RUNTIME;
+}
+
 async function requireOpenCode(env: CliEnv): Promise<boolean> {
   const status = await ensureOpenCode(preflightOptions(env));
   return status === 'present' || status === 'installed';
@@ -223,10 +231,24 @@ async function handleRun(argv: readonly string[], env: CliEnv): Promise<number> 
   if (env.upgradeNotice !== undefined) {
     await env.upgradeNotice();
   }
-  if (!(await requireOpenCode(env))) {
+  if (needsOpenCode(parsed) && !(await requireOpenCode(env))) {
     return 1;
   }
   return executeRun(parsed, env);
+}
+
+interface AgentRunSettings {
+  readonly model?: string;
+  readonly modelsByAgent?: Readonly<Record<string, string>>;
+  readonly mcp?: Readonly<Record<string, string>>;
+}
+
+function agentRunSettings(parsed: RunArguments): AgentRunSettings {
+  return {
+    ...(parsed.model !== undefined ? { model: parsed.model } : {}),
+    ...(parsed.modelsByAgent !== undefined ? { modelsByAgent: parsed.modelsByAgent } : {}),
+    ...(parsed.mcp !== undefined ? { mcp: parsed.mcp } : {}),
+  };
 }
 
 function executeRun(parsed: RunArguments, env: CliEnv): Promise<number> {
@@ -235,13 +257,12 @@ function executeRun(parsed: RunArguments, env: CliEnv): Promise<number> {
     dryRun: parsed.dryRun,
     cwd: env.cwd,
     out: env.out,
-    ...(parsed.model !== undefined ? { model: parsed.model } : {}),
-    ...(parsed.modelsByAgent !== undefined ? { modelsByAgent: parsed.modelsByAgent } : {}),
-    ...(parsed.mcp !== undefined ? { mcp: parsed.mcp } : {}),
+    ...agentRunSettings(parsed),
     ...(parsed.maxCostUsd !== undefined ? { maxCostUsd: parsed.maxCostUsd } : {}),
     ...(parsed.maxMinutes !== undefined ? { maxMinutes: parsed.maxMinutes } : {}),
     ...(parsed.agentTimeoutMs !== undefined ? { agentTimeoutMs: parsed.agentTimeoutMs } : {}),
     ...(parsed.maxConcurrency !== undefined ? { maxConcurrency: parsed.maxConcurrency } : {}),
+    ...(parsed.runtime !== undefined ? { runtime: parsed.runtime } : {}),
   }).catch((error: unknown) => {
     env.err(`lou run failed: ${errorMessage(error)}`);
     return 1;
@@ -271,7 +292,7 @@ export function main(argv?: readonly string[]): Promise<number> {
     reader: createNodeProjectReader(),
     cwd: process.cwd(),
     interactive: process.stdin.isTTY,
-    style: createStyler(process.stdout.isTTY),
+    style: createStyler(resolveColorEnabled(process.stdout.isTTY)),
     upgrade: defaultUpgradeDependencies(),
     upgradeNotice: createUpgradeNotice(),
     out: (line: string) => process.stdout.write(`${line}\n`),
@@ -330,7 +351,7 @@ function defaultUpgradeDependencies(): UpgradeDependencies {
 function createUpgradeNotice(): () => Promise<void> {
   const interactive = process.stdin.isTTY;
   const out = (line: string) => process.stdout.write(`${line}\n`);
-  const style = createStyler(process.stdout.isTTY);
+  const style = createStyler(resolveColorEnabled(process.stdout.isTTY));
   return () =>
     maybeNotifyUpgrade({
       currentVersion: readVersion(),

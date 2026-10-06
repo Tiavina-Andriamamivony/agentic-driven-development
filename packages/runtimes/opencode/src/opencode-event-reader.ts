@@ -4,8 +4,11 @@ import { parseOpenCodeEvent } from './opencode-events.ts';
 export class OpenCodeEventReader {
   private buffer = '';
   private readonly answer: string[] = [];
+  private readonly emit: (activity: AgentActivity) => void;
 
-  constructor(private readonly emit: (activity: AgentActivity) => void) {}
+  constructor(emit: (activity: AgentActivity) => void) {
+    this.emit = emit;
+  }
 
   push(chunk: string): void {
     this.buffer += chunk;

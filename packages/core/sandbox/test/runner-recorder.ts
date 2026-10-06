@@ -8,8 +8,11 @@ interface RecordedCall {
 
 export class RecordingRunner implements CommandRunner {
   readonly calls: RecordedCall[] = [];
+  private readonly result: CommandResult;
 
-  constructor(private readonly result: CommandResult) {}
+  constructor(result: CommandResult) {
+    this.result = result;
+  }
 
   run(
     command: string,

@@ -19,17 +19,78 @@
 </p>
 
 <p align="center">
-  <a href="#what-is-lou">What is Lou?</a> ·
+  <strong>Version 0.7.1.0 — pre-1.0, not production-ready.</strong><br />
+  <a href="#read-this-first">Read this first</a> before you trust it with anything.
+</p>
+
+<p align="center">
+  <a href="#read-this-first">Read this first</a> ·
+  <a href="#what-is-lou">What is Lou</a> ·
   <a href="#what-you-need">What you need</a> ·
   <a href="#install">Install</a> ·
   <a href="#your-first-run-step-by-step">First run</a> ·
   <a href="#every-command">Every command</a> ·
-  <a href="#troubleshooting">Troubleshooting</a> ·
-  <a href="#safety-model">Safety</a> ·
-  <a href="#honest-status">Honest status</a>
+  <a href="#what-happens-during-lou-run">What a run does</a> ·
+  <a href="#what-lou-writes-on-your-computer">What it writes</a> ·
+  <a href="#safety-model">Safety model</a> ·
+  <a href="#project-state">Project state</a> ·
+  <a href="#known-gaps-and-bugs">Known gaps</a> ·
+  <a href="#troubleshooting">Troubleshooting</a>
 </p>
 
 ---
+
+## Read this first
+
+This section is the most important one on the page. Everything else is accurate, but you
+should not read the rest and conclude the product is finished.
+
+**Lou has never taken a ticket to a pull request on a real repository.** Not once. The
+closest it got: on `2026-10-04`, a real run against a real greenfield repository got all
+the way through planning, test authoring, a red-to-green implementation, real verification,
+and a reviewer `APPROVED` — then failed on the final step, because the developer agent
+reported `CHANGED: none` and Lou handed that literal string to `git add`. That defect is
+fixed in `v0.7.1.0` and covered by a test. The fix has never itself been validated by a
+complete run, because the rerun was interrupted.
+
+Everything else in the safety story is real and exercised by the test suite: the state
+machine, the two human gates, the policy gate, the workspace confinement, the audit trail,
+and Lou running your tests itself instead of trusting the agent.
+
+What is **not** real is the end-to-end claim. Treat Lou as a well-tested engine whose last
+mile is unproven.
+
+**What the green suite does and does not prove.** The 678 tests are real and they do have
+teeth — removing one `git stage()` call fails four of them. But they run against injected
+fakes for git, GitHub and the agent runtime. That is why the suite stayed fully green while
+`lou run` was structurally unable to open a pull request. A green suite here means the
+pieces are correct in isolation. It does not mean a ticket has been delivered.
+
+**Numbers, so you can size the risk yourself.**
+
+|                                           |                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------- |
+| Version                                   | `0.7.1.0`, 10 releases, strict semver, everything below `1.0.0` may break |
+| Complete runs on a real repository        | **0**                                                                     |
+| Real agent runs that reached a human gate | 1 (opencode, 2026-10-04, failed at the last step)                         |
+| Real `claude` runs that authenticated     | **0** — every attempt returned `401 authentication_failed`                |
+| Tests                                     | 678 passing, 1 skipped                                                    |
+| Source                                    | 111 files, ~7,400 lines                                                   |
+| Tests                                     | 74 files, ~10,300 lines                                                   |
+| Packages                                  | 15                                                                        |
+| Contributors                              | 1                                                                         |
+| External users                            | 0. Two GitHub stars, no bug reports, no telemetry                         |
+| CI                                        | Node 22 and 24, on `ubuntu-latest` only                                   |
+| Open issues                               | 0                                                                         |
+
+**Honest self-assessment.** The engineering discipline is real: 678 tests, zero lint
+warnings, strict TypeScript, conventional commits enforced, `main` protected, the product
+dogfoods the NASA Power of Ten policy it ships. The feature coverage of the MVP
+specification is complete in code. The _validation_ is what is missing. This is a strong
+`0.x` with a `1.0`-shaped feature list, not a `1.0`.
+
+**Do not grant Lou full trust before `1.0.0`.** Run it on a throwaway repository or a
+dedicated branch, read the diff, read the audit trail, and merge nothing you have not read.
 
 ## What is Lou?
 
@@ -82,12 +143,17 @@ build Lou from source, you will need it.
 
 ```bash
 node --version     # must print v22.7 or higher
-gh auth status# must say you are logged in
+gh auth status     # must say you are logged in
 git remote -v      # must print your repository URL
 ```
 
-If any of these fails, fix it before continuing — `lou doctor` will tell you the same
-things in one shot.
+If any of these fails, fix it before continuing — `lou doctor` will tell you the same things
+in one shot.
+
+**Platform support, honestly.** CI runs on `ubuntu-latest` only. The Linux/macOS installer
+has been executed by hand on Linux. The Windows PowerShell installer has **never been run**.
+macOS has never been tested at all. Treat Windows and macOS as untested ports, not as
+supported ones.
 
 ## Install
 
@@ -100,7 +166,7 @@ dependencies, and puts a `lou` command on your PATH. No compiler, no global pack
 curl -fsSL https://raw.githubusercontent.com/Tiavina-Andriamamivony/lou-agents-orchestrator/main/apps/cli/install/install.sh | bash
 ```
 
-**Windows (PowerShell)**
+**Windows (PowerShell)** — untested, see the platform note above.
 
 ```powershell
 irm https://raw.githubusercontent.com/Tiavina-Andriamamivony/lou-agents-orchestrator/main/apps/cli/install/install.ps1 | iex
@@ -110,17 +176,20 @@ The installer is short and readable — you can read it before running it
 (`apps/cli/install/install.sh`). Useful options:
 
 ```bash
-bash install.sh --version v0.7.0.0  # pin a specific release instead of main
-bash install.sh --prefix ~/.lou    # install somewhere else (default: ~/.lou)
-bash install.sh --help             # all options
+bash install.sh --version v0.7.1.0  # pin a specific release instead of main
+bash install.sh --prefix ~/.lou      # install somewhere else (default: ~/.lou)
+bash install.sh --help               # all options
 ```
 
 **Check the installation:**
 
 ```bash
-lou --version    # e.g. lou 0.7.0.0
+lou --version    # e.g. lou 0.7.1.0
 lou doctor       # verifies every prerequisite
 ```
+
+> Installing from `main` gives you unreviewed, untagged code. Pin `--version` if you care
+> about what you get.
 
 `lou doctor` checks five things — Node.js, pnpm, the GitHub CLI, the agent runtime, and
 that you are inside a Git repository — and exits with code `1` if any of them fails.
@@ -137,7 +206,9 @@ rm -rf ~/.lou        # Linux / macOS
 git clone https://github.com/Tiavina-Andriamamivony/lou-agents-orchestrator.git
 cd lou-agents-orchestrator
 pnpm install
-pnpm --filter @lou/cli exec tsx src/cli.ts --help   # or: node --no-warnings --experimental-transform-types apps/cli/bin/lou.js --help
+pnpm --filter @lou/cli exec tsx src/cli.ts --help
+# or, without pnpm:
+node --no-warnings --experimental-strip-types apps/cli/bin/lou.js --help
 ```
 
 ## Your first run, step by step
@@ -168,11 +239,14 @@ code", "conventional commits"...). Edit the file to match your own standards: ev
 reads these rules on every run.
 
 ```bash
-lou constitution                       # show the file and count its rules
-lou constitution --init --force        # replace it with the defaults again
+lou constitution                    # show the file and count its rules
+lou constitution --init --force     # replace it with the defaults again
 ```
 
 Lou never overwrites an existing constitution unless you pass `--force`.
+
+> The constitution lives in `.add/` while everything else Lou writes lives in `.lou/`. That
+> split is an unfinished rebrand. See [Known gaps](#known-gaps-and-bugs).
 
 ### Step 3 — Make sure everything is in place
 
@@ -194,7 +268,12 @@ lou run 12
 it, and Lou continues. At the end you get a pull request — which you still review and
 merge yourself.
 
-Start with `--dry-run` if you only want to see the plan without changing anything.
+Start with `--dry-run` if you only want to see the plan without changing anything. It stops
+right after the plan gate and changes nothing.
+
+**Set a budget.** A bare `lou run 12` has **no cost limit and no time limit**. The budget
+wrapper is only installed if you pass `--max-cost-usd` or `--max-time-min`. See
+[Budgets](#budgets-and-limits) before your first unattended run.
 
 ### Step 5 — See what happened
 
@@ -241,7 +320,7 @@ It verifies five things:
 
 | Check                 | What it verifies                                           |
 | --------------------- | ---------------------------------------------------------- |
-| `Node runtime`        | Node 22.7+ and the `--experimental-transform-types` flag   |
+| `Node runtime`        | Node 22.7+ and the `--experimental-strip-types` flag       |
 | `pnpm`                | pnpm is reachable                                          |
 | `GitHub CLI`          | `gh` is installed and you are logged in (`gh auth status`) |
 | `opencode` / `claude` | the chosen agent runtime answers `--version`               |
@@ -271,7 +350,7 @@ Manages `.add/constitution.md` — the permanent rulebook every agent reads on e
 
 ```bash
 lou constitution                      # show path, rule count, validity
-lou constitution --init# create it with the 12 default rules
+lou constitution --init               # create it with the 12 default rules
 lou constitution --init --force       # overwrite an existing file
 lou constitution --json               # machine-readable output
 ```
@@ -298,7 +377,7 @@ While it works, Lou prints what it is doing, and it **stops and waits for you tw
 1. **After the plan** — read it, approve or reject.
 2. **Before the pull request** — the final human gate.
 
-Every run is recorded, bounded and reversible. See
+There is no flag to skip either gate. Every run is recorded, bounded and reversible. See
 [all `lou run` options](#all-lou-run-options) and
 [what happens during a run](#what-happens-during-lou-run).
 
@@ -329,11 +408,14 @@ Updates Lou to the latest release.
 
 ```bash
 lou upgrade            # latest version
-lou upgrade v0.7.0.0    # a specific version
+lou upgrade v0.7.1.0   # a specific version
 lou upgrade --help
 ```
 
 **Exit code:** `0` on success, `1` on failure.
+
+> `lou upgrade` has never been exercised against a real upgrade on this project. Treat the
+> first run as untested.
 
 ### `lou help`
 
@@ -344,7 +426,7 @@ lou -h
 ```
 
 Prints the list of commands and exits. `lou --version` (or `lou -v`) prints the installed
-version, for example `lou 0.7.0.0`.
+version, for example `lou 0.7.1.0`.
 
 ### All `lou run` options
 
@@ -370,8 +452,27 @@ lou run 12 13 --max-concurrency 2
 lou run 12 --mcp context7=npx -y @upstash/context7-mcp --max-cost-usd 2 --max-time-min 30
 ```
 
-Budget flags are ignored unless you set at least one of them — an unbounded run is the
-default, which is why setting `--max-cost-usd` or `--max-time-min` is recommended.
+### Budgets and limits
+
+Read this table before an unattended run. Three of these four limits are not what a new user
+expects.
+
+| Limit                                                 | Default       | Configurable?               |
+| ----------------------------------------------------- | ------------- | --------------------------- |
+| Cost per run (`--max-cost-usd`)                       | **unbounded** | yes, but **off by default** |
+| Wall time per run (`--max-time-min`)                  | **unbounded** | yes, but **off by default** |
+| Timeout per agent call (`--agent-timeout-min`)        | 30 minutes    | yes                         |
+| Iterations per loop region (`plan`, `implementation`) | 5             | **no — hard-coded**         |
+| Concurrent tickets (`--max-concurrency`)              | 1             | yes                         |
+
+The first two rows are the trap. `boundedRuntime()` only wraps the runtime in a budget when
+you pass at least one of them, so `lou run 12` on its own will spend money and time without
+limit. Pass both.
+
+The iteration limit is a constant, `DEFAULT_ITERATION_LIMIT = 5`, in
+`packages/core/state-machine/src/workflow.ts`. It counts per loop region, so `plan` gets 5
+and `implementation` gets 5. When a region runs out, the state machine moves to
+`HUMAN_INTERVENTION_REQUIRED` and the run stops.
 
 ## What happens during `lou run`
 
@@ -418,6 +519,11 @@ Two properties make this different from "just run the agent":
 - **Audited.** Every step, command and approval is written to an append-only log that
   survives the run.
 
+**If the project has no test harness**, Lou warns but continues: the test designer still
+produces acceptance cases. If the project _declares_ a `test` script that does not actually
+run tests, Lou refuses and stops — a `test` script that only runs `tsc --noEmit` exits `0`
+and would otherwise count as a pass.
+
 ### Watching a run
 
 Agents take minutes, so Lou never leaves you staring at a blank screen:
@@ -459,19 +565,28 @@ shows a spinner, what the agent is doing right now, and an elapsed timer. After 
 of silence the line says so explicitly instead of freezing. Piped into a file or CI, the
 spinner becomes one plain line every 30 seconds, so the log never goes quiet either.
 
+`NO_COLOR`, `FORCE_COLOR` and `TERM=dumb` are all honoured, so piping a run into a file does
+not fill it with escape sequences.
+
 ## What Lou writes on your computer
 
 Lou never touches your working tree while a run is in progress: each run gets its own
 isolated Git worktree in the system temporary directory, so several tickets can run
 concurrently without contaminating each other or your current branch.
 
-| Path                             | What it is                                               | Created by                |
-| -------------------------------- | -------------------------------------------------------- | ------------------------- |
-| `.add/constitution.md`           | Your project's permanent rules.                          | `lou constitution --init` |
-| `.lou/runs/run-<n>.jsonl`        | The audit trail of run `n` (one JSON event per line).    | `lou run`                 |
-| `.lou/runs/run-<n>.summary.json` | The outcome of run `n`: status, reason, PR URL, timings. | `lou run`                 |
-| `<temp>/lou/worktrees/run-<n>`   | The isolated worktree where run `n` works.               | `lou run`                 |
-| `~/.lou/`                        | The Lou installation itself.                             | the installer             |
+| Path                             | What it is                                               | Created by                | In git?     |
+| -------------------------------- | -------------------------------------------------------- | ------------------------- | ----------- |
+| `.add/constitution.md`           | Your project's permanent rules.                          | `lou constitution --init` | your call   |
+| `.lou/runs/run-<n>.jsonl`        | The audit trail of run `n` (one JSON event per line).    | `lou run`                 | **ignored** |
+| `.lou/runs/run-<n>.summary.json` | The outcome of run `n`: status, reason, PR URL, timings. | `lou run`                 | **ignored** |
+| `.lou/runs/run-<n>/agents/`      | Raw per-agent output and prompts, for post-mortem.       | `lou run`                 | **ignored** |
+| `<temp>/lou/worktrees/run-<n>`   | The isolated worktree where run `n` works.               | `lou run`                 | n/a         |
+| `~/.lou/`                        | The Lou installation itself.                             | the installer             | n/a         |
+
+**.lou/runs/ is gitignored.** The audit trail is a local artefact, not a committed one. If
+you delete the directory, or work on a machine you later wipe, the record of what Lou did is
+gone. If audit durability matters to you, copy it somewhere yourself — Lou will not do it for
+you, and it is not uploaded anywhere.
 
 **The audit trail is the record of what happened.** After a run, read it:
 
@@ -491,12 +606,140 @@ Secrets are redacted before they reach the log, and long command output is trunc
 | `opencode not found on PATH`                      | The agent runtime is missing.                                                 | Run `lou init` in a terminal — it offers to install OpenCode. |
 | `Git repository — not inside a git work tree`     | You are not in a project folder.                                              | `cd` into your project before running `lou run`.              |
 | `tests could not prove anything`                  | The project has no test command, or the runner never reported a passing test. | Add real tests. Lou refuses to advance on unproven work.      |
+| a run stops with a `test` script refusal          | The declared `test` script only runs a type checker, linter or bundler.       | Point `test` at a real runner, or add one.                    |
 | `Already present. Re-run with --force`            | A constitution already exists.                                                | Edit the file, or `lou constitution --init --force`.          |
 | `Budget exhausted`                                | The run hit `--max-cost-usd` or `--max-time-min`.                             | Raise the budget, or split the ticket.                        |
+| `iteration budget exhausted for implementation`   | Five corrections were not enough. It is not a flag you can raise.             | Split the ticket, or make the tests smaller.                  |
 | A run stops at a gate and waits                   | This is the design, not a bug.                                                | Answer the prompt in the terminal.                            |
 
 Run `lou runs` to see the status of past runs, and read the last lines of
 `.lou/runs/run-<n>.jsonl` to understand why one stopped.
+
+## Safety model
+
+- **Bounded workflows** — the state machine caps every retry loop at 5 iterations per region.
+  When a run exceeds its budget it stops and asks for a human.
+- **Policy engine** — every command Lou spawns is classified `ALLOW` / `DENY` / `ASK_HUMAN`
+  before it runs. Each adapter has its own role and its own allow list, and destructive rules
+  are evaluated first: a role allowed to `git push` still cannot `--force`. `DENY` and
+  `ASK_HUMAN` never execute.
+- **Command sandbox** — `@lou/sandbox` refuses any command whose working directory escapes
+  the workspace root, and routes the rest through the policy engine. It is wired behind git,
+  GitHub, the test runner and the agent runtime.
+- **Human gates** — the run pauses after the plan and before the pull request. There is no
+  flag to skip them.
+- **Audit trail** — every tool call, approval and command is recorded, with secrets redacted.
+- **Verification over trust** — Lou runs your test command itself and refuses a `test`
+  script that runs no tests.
+- **NASA Power of Ten as the default engineering policy** — Lou ships a baseline policy
+  inspired by the JPL/NASA Power of Ten rules, tuned for TypeScript/Node. The same rules are
+  enforced on Lou's own codebase by the linter and CI, so the product dogfoods the policy it
+  governs.
+
+### What the safety model does not cover
+
+**An agent's own tools are not sandboxed.** `opencode run` and `claude -p` execute whatever
+tools the model decides to call, with whatever permissions those tools have. Lou gates the
+_invocation_ of the agent, not the shell commands the model runs inside it. Confining that
+needs an OS-level sandbox, which is not implemented. This is the single largest gap in the
+product.
+
+Practically: an agent under Lou can still run any command your user account can run, inside
+its worktree, and can still reach the network, your credentials and your `~/.ssh`. The
+worktree isolation limits the blast radius on your repository. It does not limit it on your
+machine.
+
+## Project state
+
+### Against the MVP specification (§47)
+
+Every item of the MVP scope is present in code. "Present in code" is not "validated in
+production" — read the two columns as different claims.
+
+| §47 item             | In code     | Validated on a real repo |
+| -------------------- | ----------- | ------------------------ |
+| CLI                  | yes         | yes                      |
+| `/init`              | yes         | yes                      |
+| Git                  | yes         | yes                      |
+| GitHub Issues        | yes         | yes                      |
+| GitHub Pull Requests | adapter yes | **no — never completed** |
+| Project Constitution | yes         | yes                      |
+| Policy Engine        | yes         | unit-tested only         |
+| Planner Agent        | yes         | yes                      |
+| Test Agent           | yes         | yes, once                |
+| Developer Agent      | yes         | yes, once                |
+| Reviewer Agent       | yes         | yes, once                |
+| OpenCode adapter     | yes         | yes, once                |
+| state machine        | yes         | unit-tested only         |
+| human approval gates | yes         | yes, once                |
+| test-first workflow  | yes         | yes, once                |
+| audit trail          | yes         | yes, once                |
+| command safety       | yes         | unit-tested only         |
+| PR generation        | yes         | **no — never completed** |
+
+The two bold rows are the product. Everything else is scaffolding around them.
+
+### Beyond the MVP
+
+Built early, and working: a second runtime (`claude`), per-agent model routing, MCP server
+registration, cost and time budgets, `--max-concurrency`, `--dry-run`, `lou runs`,
+`lou upgrade`, an OpenCode auto-installer, and a test-harness bootstrap that lets the test
+agent install a runner when the project has none.
+
+### Engineering quality
+
+| Gate                 | State                                                                      |
+| -------------------- | -------------------------------------------------------------------------- |
+| Tests                | 678 passing, 1 skipped, across 15 packages                                 |
+| Test-to-source ratio | ~10,300 lines of tests for ~7,400 lines of source                          |
+| Lint                 | ESLint strict, zero warnings, NASA Power of Ten enforced                   |
+| Types                | `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` |
+| Dead code            | `knip` in the gate                                                         |
+| CI                   | lint → format → typecheck → knip → test, Node 22 and 24                    |
+| Branch protection    | 1 approving review + Quality Gates + Conventional Commits                  |
+| Commits              | conventional commits, enforced by commitlint and CI                        |
+| Method               | TDD by convention, stated in AGENTS.md                                     |
+
+## Known gaps and bugs
+
+Everything on this list is a real, currently-true statement about the code. Nothing here is
+speculative.
+
+### Blocking
+
+- **No end-to-end run has ever produced a pull request.** The last real attempt failed at
+  `git add` with a placeholder path (`v0.7.1.0` fixes it; the fix is unvalidated).
+- **Agents run unsandboxed.** See
+  [What the safety model does not cover](#what-the-safety-model-does-not-cover). The largest
+  gap in the product.
+- **`--runtime claude` has never executed a real agent call.** Every attempt returned
+  `401 authentication_failed` with `apiKeySource: none`. The adapter is unit-tested against
+  a real `stream-json` envelope, but no authenticated verdict has ever been parsed.
+- **The default run is unbounded in cost and time.** No budget is enforced unless you pass
+  `--max-cost-usd` or `--max-time-min`.
+
+### Real defects and inconsistencies
+
+- **`.add/` vs `.lou/`.** The constitution is written to `.add/constitution.md`, an
+  unfinished rebrand from the old `ADD` name, while every other artefact lives under
+  `.lou/`. Two dot-directories for one tool. Renaming it would break existing constitutions,
+  which is why it has not been done.
+- **`pnpm-workspace.yaml` declares `tests/*`, and no `tests/` directory exists.** Dead
+  configuration.
+- **`--max-concurrency` has never been exercised with more than one ticket.** The code path
+  exists and is unit-tested; the real behaviour of two simultaneous worktrees is unproven.
+- **`lou upgrade` has never upgraded anything.** Untested against a real release transition.
+- **CI runs on `ubuntu-latest` only.** No macOS runner, no Windows runner, despite shipping
+  two installers.
+- **`install.ps1` has never been executed.** Not once, by anyone.
+- **The audit trail is gitignored**, so it is neither shared nor backed up. See
+  [What Lou writes](#what-lou-writes-on-your-computer).
+
+### Absent by design, and worth naming
+
+These are not gaps in the work, they are the non-goals of the specification (§3, §47):
+no web UI, no automatic production deploy, no multi-Kanban, no agent marketplace, no
+fine-tuning, no multi-tenancy, no advanced analytics.
 
 ## How it is built
 
@@ -563,6 +806,9 @@ Agent adoption is a governance decision, not a tool choice:
   than one agent runtime (`--runtime opencode|claude`). No single vendor lock-in.
 - **Reproducible** — a run is a documented, bounded process, not a black box.
 
+Read the audit caveat before you promise any of this to an auditor: the log is local and
+gitignored.
+
 ## Principles
 
 | Principle               | Commitment                                                           |
@@ -576,27 +822,6 @@ Agent adoption is a governance decision, not a tool choice:
 | Model agnostic          | Different models can be orchestrated for different tasks.            |
 | Reproducible            | Every run can be traced and, as far as possible, replayed.           |
 
-## Safety model
-
-- **Bounded workflows** — the state machine caps every retry loop. When a run exceeds its
-  iteration budget it stops and asks for a human.
-- **Policy engine** — every command Lou spawns is classified `ALLOW` / `DENY` / `ASK_HUMAN`
-  before it runs. Each adapter has its own role and its own allow list, and destructive rules
-  are evaluated first: a role allowed to `git push` still cannot `--force`. `DENY` and
-  `ASK_HUMAN` never execute.
-- **Command sandbox** — `@lou/sandbox` refuses any command whose working directory escapes
-  the workspace root, and routes the rest through the policy engine. It is wired behind git,
-  GitHub, the test runner and the agent runtime.
-- **Human gates** — the run pauses after the plan and before the pull request. There is no
-  flag to skip them.
-- **Audit trail** — every tool call, approval and command is recorded, with secrets redacted.
-- **NASA Power of Ten as the default engineering policy** — Lou ships a baseline policy
-  inspired by the JPL/NASA Power of Ten rules, tuned for TypeScript/Node. The same rules are
-  enforced on Lou's own codebase by the linter and CI, so the product dogfoods the policy it
-  governs.
-
-See [Honest status](#honest-status) for what this does and does not cover.
-
 ## Why not just "vibe code"?
 
 |                   | Raw agent CLI                 | IDE chat                  | Lou                                                          |
@@ -605,75 +830,29 @@ See [Honest status](#honest-status) for what this does and does not cover.
 | Tests             | Claimed, occasionally trusted | Claimed                   | Written first, then run by Lou                               |
 | Human control     | Interrupt when things break   | Approve inline            | Explicit gates: plan, PR                                     |
 | Safety            | Depends on the prompt         | Depends on the prompt     | Bounded state machine, approval gates, policy-gated commands |
-| Auditability      | Barely                        | Barely                    | Every decision recorded                                      |
+| Auditability      | Barely                        | Barely                    | Every decision recorded, locally                             |
 | Model portability | Tied to one provider          | Tied to one provider      | Model-agnostic by design                                     |
-
-> ⚠️ **Pre-1.0 software. Use it on a branch, not on your main line.**
->
-> Lou is under active development and the release numbering follows semver strictly:
-> every version below `1.0.0` is, by definition, unstable. Expect breaking changes to
-> commands, prompts, audit schema and the state machine between releases.
->
-> **Do not grant Lou full trust until `1.0.0`.** Run it on a throwaway repository or a
-> dedicated branch, keep an eye on the diff it produces, and read the audit trail before
-> you merge. Lou gates the commands _it_ spawns and requires two human approvals, but it
-> does not confine the tools an agent runs inside its own CLI session (see
-> [Honest status](#honest-status)).
-
-## Honest status
-
-What works, and what does not. A green test suite is not evidence here: it stayed green
-while `lou run` was structurally unable to open a pull request, because every test injected
-a fake git adapter.
-
-**Proven end to end** — a run goes from a GitHub issue to a created pull request against a
-real repository, with a real git adapter, a real audit log on disk and the real test command
-(`apps/cli/test/run-wiring.test.ts`). Removing one `git stage()` call makes four of those
-tests fail, so the test has teeth.
-
-**Now on the `lou run` path** — every command Lou itself spawns (git, `gh`, the test command
-and the agent runtime invocation) is confined to the workspace root and classified before it
-runs. Destructive rules are evaluated before the allow lists, so `git push --force` is refused
-even for the role that is allowed to push. `apps/cli/test/run-sandbox-wiring.test.ts` asserts
-the sandbox really is the object behind each adapter: removing it from the composition fails
-that test while the rest of the suite stays green.
-
-**Still not covered** — what an agent does _inside_ its own CLI session. `opencode run` and
-`claude -p` execute their own tools; Lou gates the invocation, not the shell commands the
-model decides to run inside it. Confining that needs an OS-level sandbox, which is not
-implemented.
-
-The constitution _is_ honoured: `lou run` reads `.add/constitution.md` and puts its articles
-in front of the planner, the test designer, the test writer, the developer and the reviewer.
-An invalid file is reported and ignored rather than silently dropped, and a run with no
-constitution file simply proceeds without one.
-
-The safety story that is real today is therefore: the bounded state machine, the explicit
-human approval gates, the audit trail, the policy gate and workspace confinement on every
-command Lou spawns, and the fact that Lou runs the test command itself instead of trusting
-the agent's word.
-
-**Never validated at scale** — no real agent run has completed in a development environment.
-Agent output parsing (`CHANGED:`, `SUMMARY:`, `VERDICT:`) has only ever been fed the exact
-format the parser expects. The Claude Code runtime's own verdict is parsed and enforced, but
-the only real `claude` calls captured returned `401 authentication_failed`
-(`apiKeySource: none`), so their event streams ended in an aborted envelope rather than a
-verdict. The realtime envelope itself was read off a real run: `--output-format stream-json`
-emits JSON Lines and closes with a `type: "result"` object carrying `is_error`,
-`total_cost_usd` and `usage`, and it refuses to start without `--verbose`.
+| Maturity          | —                             | —                         | 0.7.1.0, pre-1.0, never validated end to end                 |
 
 ## Roadmap
 
-| Phase | Focus                                                                                     |
-| ----- | ----------------------------------------------------------------------------------------- |
-| 0.x   | Current: unstable, opt-in, branch-only. Semver is strict — anything below 1.0.0 may break |
-| 1     | MVP: GitHub issues/PRs, policy engine, project constitution, human gates, audit, sandbox  |
-| 2     | Agent platform: multiple agents/models, MCP, model routing, cost control                  |
-| 3     | Team/enterprise: organizational policies, RBAC, shared projects, compliance               |
-| 4     | Ecosystem: Linear, Jira, GitLab, cloud environments, plugin marketplace                   |
+Where the code actually is, against the specification's phases (§51).
 
-MVP scope is fixed in the [product specification](docs/cahier-des-charges.md) (§47, in
-French) — the design contract this repository implements.
+| Phase | Focus                                                                          | State                                            |
+| ----- | ------------------------------------------------------------------------------ | ------------------------------------------------ |
+| 0     | Proof of concept: CLI, OpenCode, Git, manual ticket, plan, tests, code, review | done                                             |
+| 1     | GitHub, Policy Engine, Constitution, Human Gates, Audit, Sandbox               | **done**                                         |
+| 2     | Multiple agents, multiple models, MCP, model routing, cost control             | **largely done** — all built; claude unvalidated |
+| 3     | Organization policies, RBAC, shared projects, centralised audit                | not started                                      |
+| 4     | Ecosystem: Linear, Jira, GitLab, cloud environments, marketplace               | not started                                      |
+
+Phases 0 to 2 are built. What is missing is not a feature, it is the evidence: one
+uninterrupted run from issue to pull request, one authenticated `claude` call, one macOS CI
+job, one Windows installer execution. **The next meaningful version is not a feature, it is
+a validated one.**
+
+The MVP scope this implements is fixed in the
+[product specification](docs/cahier-des-charges.md) (§47, in French).
 
 ## Repository layout
 
@@ -715,6 +894,8 @@ lou-agents-orchestrator/
 - Not an LLM wrapper — no single locked-in model.
 - Not a CRUD generator.
 - Not a system that deploys to production automatically.
+- Not a security boundary for the tools an agent runs on its own. It gates what Lou spawns,
+  nothing more.
 
 ## Contributing
 
@@ -745,9 +926,26 @@ Conventions:
 The repo is developed by its own orchestrator; see
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+### What a contributor should fix first
+
+In priority order, and none of it is a feature:
+
+1. One uninterrupted `lou run` from a real issue to a real pull request, on `main`, not
+   interrupted, then a test that reproduces the journey.
+2. An authenticated `claude` run, so `--runtime claude` stops being theoretical.
+3. A macOS runner and one execution of `install.ps1`, so two shipped installers are not
+   untested ports.
+4. `pnpm test` on the `main` branch of a project with no tests at all — the greenfield path
+   is the one nobody uses yet, and it is where the last two defects lived.
+5. `.add/` → `.lou/`, with a migration for existing constitutions.
+
 ## Security
 
 Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md).
+
+Lou executes commands on your machine through your agent runtime. Read
+[What the safety model does not cover](#what-the-safety-model-does-not-cover) before
+exposing it to a repository you care about.
 
 ## License
 
